@@ -358,6 +358,24 @@ export default function TodayPage() {
     setDraft(newContent);
   };
 
+  // Auto-guardado periódico cada 60 s — garantiza que la entrada esté en el servidor
+  // antes de cualquier cierre de pestaña, navegación o apertura de la PWA.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const { draft: d, mood: m, savedLocations: locs } = diaryStateRef.current;
+      const fp = persistFingerprint(d, m, locs);
+      if (fp === lastSavedFingerprint.current) return;
+      void upsertMutateRef.current({
+        date: today,
+        content: d,
+        mood: m,
+        locationData: locationsToPayload(locs),
+      });
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [today]);
+
+  // Guardado al desmontar (best-effort; el intervalo cubre la mayoría de casos)
   useEffect(() => {
     return () => {
       const { draft: d, mood: m, savedLocations: locs } = diaryStateRef.current;
