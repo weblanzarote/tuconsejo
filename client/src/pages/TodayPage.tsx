@@ -144,6 +144,10 @@ export default function TodayPage() {
     },
   });
 
+  /** La mutación de tRPC puede cambiar de referencia cada render; no incluir `upsert` en deps de efectos */
+  const upsertMutateRef = useRef(upsert.mutate);
+  upsertMutateRef.current = upsert.mutate;
+
   const { data: pulseData, isLoading: pulseLoading } = trpc.signals.pulseOfDay.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
     retry: false,
@@ -165,7 +169,7 @@ export default function TodayPage() {
     setHasLoadedEntry(false);
   }, [today]);
 
-  // Una sola hidratación desde el servidor; las siguientes actualizaciones (p. ej. tras guardar) no pisan lo que escribes
+  // Hidratación inicial: `hasLoadedEntry` evita que nuevas referencias de `entry` (tras setData) vuelvan a pisar el borrador
   useEffect(() => {
     if (isLoading) return;
     if (hasLoadedEntry) return;
@@ -178,7 +182,7 @@ export default function TodayPage() {
       locationsFromEntry(entry?.locationData)
     );
     setHasLoadedEntry(true);
-  }, [isLoading, entry, hasLoadedEntry]);
+  }, [isLoading, hasLoadedEntry, entry]);
 
   const saveDiary = useCallback(async () => {
     const { draft: d, mood: m, savedLocations: locs } = diaryStateRef.current;
@@ -322,14 +326,14 @@ export default function TodayPage() {
       const { draft: d, mood: m, savedLocations: locs } = diaryStateRef.current;
       const fp = persistFingerprint(d, m, locs);
       if (fp === lastSavedFingerprint.current) return;
-      void upsert.mutate({
+      void upsertMutateRef.current({
         date: today,
         content: d,
         mood: m,
         locationData: locationsToPayload(locs),
       });
     };
-  }, [today, upsert]);
+  }, [today]);
 
   const pastEntries = (recentEntries ?? []).filter((e) => e.date !== today);
 
