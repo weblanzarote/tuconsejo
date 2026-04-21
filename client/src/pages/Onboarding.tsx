@@ -7,6 +7,8 @@ import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { TimezoneSelect } from "@/components/TimezoneSelect";
+import { getDetectedTimeZone } from "@/lib/dateTz";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -19,6 +21,8 @@ const STEPS = [
 ];
 
 interface FormData {
+  /** Zona IANA para el diario (día civil) */
+  timezoneIana: string;
   // Personal
   nombre: string;
   edad: string;
@@ -61,6 +65,7 @@ interface FormData {
 }
 
 const INITIAL_FORM: FormData = {
+  timezoneIana: "",
   nombre: "", edad: "", ubicacion: "", educacion: "", idiomas: "",
   ingresos: "", ahorros: "", deudas: "", metaFinanciera: "",
   rolActual: "", empresa: "", habilidades: "", metaCarrera: "",
@@ -127,7 +132,7 @@ function FieldGroup({ label, children }: { label: string; children: React.ReactN
 }
 
 export default function Onboarding() {
-  const { user, loading } = useLocalAuth();
+  const { user, loading, refresh } = useLocalAuth();
   const [, navigate] = useLocation();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
@@ -140,6 +145,10 @@ export default function Onboarding() {
       navigate("/");
     }
   }, [user, loading, navigate]);
+
+  useEffect(() => {
+    setForm((f) => (f.timezoneIana ? f : { ...f, timezoneIana: getDetectedTimeZone() }));
+  }, []);
 
   const update = (field: keyof FormData, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -209,7 +218,9 @@ export default function Onboarding() {
         guardianFramework: form.guardianEnabled
           ? marcoGuardianLabel(form) || undefined
           : undefined,
+        timezone: form.timezoneIana.trim() || getDetectedTimeZone(),
       });
+      await refresh();
       toast.success("¡Tu Consejo está listo!");
       navigate("/hoy");
     } catch {
@@ -257,6 +268,10 @@ export default function Onboarding() {
           {/* Paso 1: Personal */}
           {step === 1 && (
             <div className="space-y-4 animate-fade-in-up">
+              <TimezoneSelect
+                value={form.timezoneIana || getDetectedTimeZone()}
+                onChange={(iana) => update("timezoneIana", iana)}
+              />
               <FieldGroup label="¿Cómo te llamas?">
                 <Input
                   value={form.nombre}

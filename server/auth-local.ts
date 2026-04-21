@@ -65,7 +65,7 @@ export async function getUserFromRequest(req: Request) {
 export function registerLocalAuthRoutes(app: Express) {
   // POST /api/auth/register
   app.post("/api/auth/register", async (req: Request, res: Response) => {
-    const { username, password, name, email } = req.body ?? {};
+    const { username, password, name, email, timezone } = req.body ?? {};
 
     if (!username || !password) {
       res.status(400).json({ error: "Usuario y contraseña son obligatorios" });
@@ -88,11 +88,14 @@ export function registerLocalAuthRoutes(app: Express) {
       }
 
       const passwordHash = await bcrypt.hash(password, 12);
+      const tz =
+        typeof timezone === "string" && timezone.trim().length >= 3 ? timezone.trim().slice(0, 120) : undefined;
       const user = await createUser({
         username,
         passwordHash,
         name: name ?? username,
         email: email ?? undefined,
+        timezone: tz ?? null,
       });
 
       const token = await createSessionToken(user.id);
@@ -107,6 +110,7 @@ export function registerLocalAuthRoutes(app: Express) {
           role: user.role,
           onboardingCompleted: user.onboardingCompleted,
           guardianEnabled: user.guardianEnabled,
+          timezone: user.timezone ?? null,
         },
       });
     } catch (err) {
@@ -150,6 +154,7 @@ export function registerLocalAuthRoutes(app: Express) {
           role: user.role,
           onboardingCompleted: user.onboardingCompleted,
           guardianEnabled: user.guardianEnabled,
+          timezone: user.timezone ?? null,
         },
       });
     } catch (err) {
@@ -180,6 +185,7 @@ export function registerLocalAuthRoutes(app: Express) {
       onboardingCompleted: user.onboardingCompleted,
       guardianEnabled: user.guardianEnabled,
       valuesFrameworkName: user.valuesFrameworkName,
+      timezone: user.timezone ?? null,
     });
   });
 }

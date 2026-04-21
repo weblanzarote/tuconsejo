@@ -213,6 +213,7 @@ export function initializeDatabase() {
     "ALTER TABLE users ADD COLUMN emailFilterPrefs TEXT",
     "ALTER TABLE action_items ADD COLUMN tipo TEXT NOT NULL DEFAULT 'tarea'",
     "ALTER TABLE email_signals ADD COLUMN classifierUserFeedback TEXT",
+    "ALTER TABLE users ADD COLUMN timezone TEXT",
   ];
   for (const migration of migrations) {
     try { sqlite.exec(migration); } catch (_) { /* columna ya existe */ }
@@ -228,6 +229,7 @@ export async function createUser(data: {
   email?: string;
   passwordHash: string;
   name?: string;
+  timezone?: string | null;
 }): Promise<typeof users.$inferSelect> {
   const db = getDb();
   const result = await db
@@ -237,6 +239,7 @@ export async function createUser(data: {
       email: data.email ?? null,
       passwordHash: data.passwordHash,
       name: data.name ?? null,
+      timezone: data.timezone?.trim() ? data.timezone.trim() : null,
     })
     .returning();
   return result[0];
@@ -273,12 +276,21 @@ export async function updateUserOnboarding(
     guardianEnabled?: boolean;
     valuesFrameworkName?: string;
     name?: string;
+    timezone?: string | null;
   }
 ) {
   const db = getDb();
   await db
     .update(users)
     .set({ ...data, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+export async function updateUserTimezone(userId: number, timezone: string | null) {
+  const db = getDb();
+  await db
+    .update(users)
+    .set({ timezone: timezone?.trim() ? timezone.trim() : null, updatedAt: new Date() })
     .where(eq(users.id, userId));
 }
 

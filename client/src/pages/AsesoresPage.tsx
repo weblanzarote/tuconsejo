@@ -1,4 +1,6 @@
 import { trpc } from "@/lib/trpc";
+import { useLocalAuth } from "@/hooks/useLocalAuth";
+import { formatYyyyMmDdInTimeZone, getDetectedTimeZone } from "@/lib/dateTz";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -77,6 +79,7 @@ function extractActionItems(structuredData: unknown): Array<{ title: string; des
 }
 
 export default function AsesoresPage() {
+  const { user } = useLocalAuth();
   const [input, setInput] = useState("");
   const [selectedAgents, setSelectedAgents] = useState<AgentId[]>([]);
   const [predictedAgents, setPredictedAgents] = useState<AgentId[]>([]);
@@ -87,8 +90,8 @@ export default function AsesoresPage() {
   const predictTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Query para hoy (contexto del diario)
-  const todayStr = new Date().toLocaleDateString("sv");
+  // Query para hoy (contexto del diario) — misma fecha civil que en /hoy
+  const todayStr = formatYyyyMmDdInTimeZone(new Date(), user?.timezone ?? getDetectedTimeZone());
   const { data: todayEntry } = trpc.diary.getEntry.useQuery({ date: todayStr });
 
   const predict = trpc.advisors.predict.useQuery(

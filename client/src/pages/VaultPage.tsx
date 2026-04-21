@@ -3,6 +3,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { TimezoneSelect } from "@/components/TimezoneSelect";
+import { useLocalAuth } from "@/hooks/useLocalAuth";
+import { getDetectedTimeZone } from "@/lib/dateTz";
 import { cn } from "@/lib/utils";
 import {
   BookOpen,
@@ -235,6 +238,49 @@ function SectionEditor({
   );
 }
 
+function AccountTimezoneSection() {
+  const { user, refresh } = useLocalAuth();
+  const [tz, setTz] = useState(() => user?.timezone ?? getDetectedTimeZone());
+  useEffect(() => {
+    setTz(user?.timezone ?? getDetectedTimeZone());
+  }, [user?.timezone]);
+  const updateTz = trpc.auth.updateTimezone.useMutation({
+    onSuccess: async () => {
+      toast.success("Zona horaria guardada");
+      await refresh();
+    },
+    onError: () => toast.error("No se pudo guardar la zona horaria"),
+  });
+
+  return (
+    <div className="border border-border rounded-lg p-4 bg-card space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">Zona horaria</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          El diario usa un día por fecha según esta zona (cuándo es “mañana” en tu calendario). Debe coincidir con tu reloj habitual.
+        </p>
+      </div>
+      <TimezoneSelect value={tz} onChange={setTz} id="vault-tz" />
+      <Button
+        type="button"
+        size="sm"
+        onClick={() => updateTz.mutate({ timezone: tz })}
+        disabled={updateTz.isPending}
+        className="w-full sm:w-auto"
+      >
+        {updateTz.isPending ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            Guardando…
+          </>
+        ) : (
+          "Guardar zona horaria"
+        )}
+      </Button>
+    </div>
+  );
+}
+
 export default function VaultPage() {
   const { data: vaultData, isLoading } = trpc.vault.get.useQuery();
   const updateVault = trpc.vault.update.useMutation({
@@ -277,6 +323,8 @@ export default function VaultPage() {
           Tu información personal — el contexto que guía a tus asesores
         </p>
       </div>
+
+      <AccountTimezoneSection />
 
       {/* Progreso global */}
       <div className="border border-border rounded-lg p-4 bg-muted">

@@ -13,6 +13,8 @@ export interface LocalUser {
   onboardingCompleted: boolean;
   guardianEnabled: boolean;
   valuesFrameworkName?: string | null;
+  /** IANA, p. ej. Europe/Madrid — día civil del diario */
+  timezone?: string | null;
 }
 
 interface AuthState {
@@ -89,14 +91,15 @@ export function useLocalAuth() {
       username: string,
       password: string,
       name?: string,
-      email?: string
+      email?: string,
+      timezone?: string
     ): Promise<{ success: boolean; error?: string }> => {
       try {
         const res = await fetch("/api/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ username, password, name, email }),
+          body: JSON.stringify({ username, password, name, email, timezone }),
         });
         const data = await res.json();
         if (!res.ok) return { success: false, error: data.error ?? "Error al registrarse" };

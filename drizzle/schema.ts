@@ -18,6 +18,8 @@ export const users = sqliteTable("users", {
   guardianEnabled: integer("guardianEnabled", { mode: "boolean" }).default(false).notNull(),
   valuesFrameworkName: text("valuesFrameworkName"),
   emailFilterPrefs: text("emailFilterPrefs"),
+  /** IANA, p. ej. Europe/Madrid — define el "día civil" del diario en servidor y cliente */
+  timezone: text("timezone"),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .default(sql`(unixepoch() * 1000)`)
     .notNull(),

@@ -19,6 +19,7 @@ import {
   updateActionItemStatus,
   updateConversationSummary,
   updateUserOnboarding,
+  updateUserTimezone,
   upsertVault,
   getDiaryEntry,
   upsertDiaryEntry,
@@ -46,6 +47,7 @@ import {
 import { getProvider, createCalendarEventForIntegration } from "./providers";
 import { testImapConnection } from "./providers/imap";
 import { encrypt } from "./crypto-utils";
+import { formatYyyyMmDdInTimeZone } from "./dateTz";
 
 const AgentIdSchema = z.enum([
   "economia",
@@ -68,6 +70,12 @@ const authRouter = router({
     ctx.res.clearCookie("cs_session", { path: "/" });
     return { success: true } as const;
   }),
+  updateTimezone: protectedProcedure
+    .input(z.object({ timezone: z.string().min(3).max(120) }))
+    .mutation(async ({ ctx, input }) => {
+      await updateUserTimezone(ctx.user.id, input.timezone);
+      return { success: true as const };
+    }),
 });
 
 // ─── Router de La Bóveda ──────────────────────────────────────────────────────
@@ -105,11 +113,13 @@ const vaultRouter = router({
         valuesFramework: z.any().optional(),
         guardianEnabled: z.boolean().optional(),
         guardianFramework: z.string().optional(),
+        timezone: z.string().min(3).max(120).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const guardianEnabled = input.guardianEnabled ?? false;
       const guardianFramework = input.guardianFramework;
+      const tz = input.timezone?.trim();
       await upsertVault(ctx.user.id, {
         personalInfo: input.personalInfo,
         financialStatus: input.financialStatus ?? {},
@@ -123,6 +133,7 @@ const vaultRouter = router({
         onboardingCompleted: true,
         guardianEnabled,
         valuesFrameworkName: guardianFramework?.trim() ? guardianFramework : undefined,
+        timezone: tz ? tz : undefined,
       });
       return { success: true };
     }),
@@ -1074,7 +1085,10 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
       getPendingSignalCount(userId),
       getEmailSignalsByUser(userId, "pending").then((s) => s.slice(0, 3)),
       getActionItemsByUser(userId),
-      getDiaryEntry(userId, new Date().toLocaleDateString("sv")),
+      getDiaryEntry(
+        userId,
+        formatYyyyMmDdInTimeZone(new Date(), ctx.user.timezone?.trim() || "UTC")
+      ),
     ]);
 
     const activeItems = allItems

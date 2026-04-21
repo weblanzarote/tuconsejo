@@ -1,5 +1,7 @@
 import { trpc } from "@/lib/trpc";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useLocalAuth } from "@/hooks/useLocalAuth";
+import { formatYyyyMmDdInTimeZone, getDetectedTimeZone } from "@/lib/dateTz";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DiaryEntry from "@/components/DiaryEntry";
 import {
   ChevronDown,
@@ -20,8 +22,24 @@ import type { KeyboardEvent } from "react";
 
 const DIARY_HINT_KEY = "tuconsejo.diary.saveHintDismissed.v1";
 
-function getTodayLocal(): string {
-  return new Date().toLocaleDateString("sv");
+function formatClockInTz(ms: number, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("es-ES", {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(ms));
+  } catch {
+    return new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
+  }
+}
+
+function entryUpdatedAtMs(entry: { updatedAt?: unknown } | null | undefined): number | null {
+  const u = entry?.updatedAt;
+  if (u == null) return null;
+  if (u instanceof Date) return u.getTime();
+  if (typeof u === "number") return u;
+  return null;
 }
 
 function formatDateLong(dateStr: string): string {
@@ -101,7 +119,15 @@ function SimpleMarkdown({ text }: { text: string }) {
 }
 
 export default function TodayPage() {
-  const today = getTodayLocal();
+  const { user } = useLocalAuth();
+  const tz = user?.timezone?.trim() || getDetectedTimeZone();
+  const [dayTick, setDayTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setDayTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const today = useMemo(() => formatYyyyMmDdInTimeZone(new Date(), tz), [tz, dayTick]);
+
   const [draft, setDraft] = useState("");
   const [mood, setMood] = useState<"bien" | "regular" | "mal" | null>(null);
   const [locationInput, setLocationInput] = useState("");
@@ -110,6 +136,7 @@ export default function TodayPage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [hasLoadedEntry, setHasLoadedEntry] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
+  const [lastSavedAtMs, setLastSavedAtMs] = useState<number | null>(null);
   useEffect(() => {
     try {
       setHintVisible(!localStorage.getItem(DIARY_HINT_KEY));
@@ -167,7 +194,7 @@ export default function TodayPage() {
 
   useEffect(() => {
     setHasLoadedEntry(false);
-  }, [today]);
+  }, [today, tz]);
 
   // Hidratación inicial: `hasLoadedEntry` evita que nuevas referencias de `entry` (tras setData) vuelvan a pisar el borrador
   useEffect(() => {
@@ -176,6 +203,7 @@ export default function TodayPage() {
     setDraft(entry?.content ?? "");
     setMood((entry?.mood as typeof mood) ?? null);
     setSavedLocations(locationsFromEntry(entry?.locationData));
+    setLastSavedAtMs(entryUpdatedAtMs(entry));
     lastSavedFingerprint.current = persistFingerprint(
       entry?.content ?? "",
       (entry?.mood as typeof mood) ?? null,
@@ -194,12 +222,15 @@ export default function TodayPage() {
     }
     setSaveStatus("saving");
     try {
-      await upsert.mutateAsync({
+      const saved = await upsert.mutateAsync({
         date: today,
         content: d,
         mood: m,
         locationData: locationsToPayload(locs),
       });
+      const ums = entryUpdatedAtMs(saved);
+      if (ums != null) setLastSavedAtMs(ums);
+      toast.success("Entrada de hoy guardada");
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch {
@@ -259,12 +290,14 @@ export default function TodayPage() {
     void (async () => {
       setSaveStatus("saving");
       try {
-        await upsert.mutateAsync({
+        const saved = await upsert.mutateAsync({
           date: today,
           content: diaryStateRef.current.draft,
           mood: newMood,
           locationData: locationsToPayload(diaryStateRef.current.savedLocations),
         });
+        const ums = entryUpdatedAtMs(saved);
+        if (ums != null) setLastSavedAtMs(ums);
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
       } catch {
@@ -282,12 +315,14 @@ export default function TodayPage() {
     void (async () => {
       setSaveStatus("saving");
       try {
-        await upsert.mutateAsync({
+        const saved = await upsert.mutateAsync({
           date: today,
           content: draft,
           mood,
           locationData: locationsToPayload(newLocs),
         });
+        const ums = entryUpdatedAtMs(saved);
+        if (ums != null) setLastSavedAtMs(ums);
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
       } catch {
@@ -302,12 +337,14 @@ export default function TodayPage() {
     void (async () => {
       setSaveStatus("saving");
       try {
-        await upsert.mutateAsync({
+        const saved = await upsert.mutateAsync({
           date: today,
           content: draft,
           mood,
           locationData: locationsToPayload(newLocs),
         });
+        const ums = entryUpdatedAtMs(saved);
+        if (ums != null) setLastSavedAtMs(ums);
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
       } catch {
@@ -339,14 +376,25 @@ export default function TodayPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
-      {/* ── Cabecera: solo fecha + estado de guardado discreto ── */}
-      <div className="space-y-1">
+      {/* ── Cabecera: fecha + zona + último guardado visible ── */}
+      <div className="space-y-2">
         <h1 className="font-diary text-3xl text-foreground capitalize">{formatDateLong(today)}</h1>
+        <p className="text-[11px] text-muted-foreground">
+          Día según tu zona: <span className="font-mono text-foreground/80">{tz}</span>
+          {user?.timezone ? null : (
+            <span className="text-amber-600/90 dark:text-amber-400/90"> · Ajusta la zona en Mi Perfil para fijarla en el servidor</span>
+          )}
+        </p>
+        {lastSavedAtMs != null && (
+          <p className="text-sm font-medium text-foreground">
+            Último guardado: {formatClockInTz(lastSavedAtMs, tz)}
+          </p>
+        )}
         <div className="flex items-center gap-2 text-xs text-muted-foreground min-h-[1.25rem]">
           {saveStatus === "saving" && <span>Guardando…</span>}
           {saveStatus === "saved" && (
             <span className="flex items-center gap-1 text-[#5C8A6D]">
-              <Save className="h-3 w-3" /> Guardado
+              <Save className="h-3 w-3" /> Listo
             </span>
           )}
         </div>

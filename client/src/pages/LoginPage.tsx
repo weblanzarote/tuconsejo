@@ -4,6 +4,8 @@ import { Label } from "@/components/ui/label";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { Eye, EyeOff, Loader2, Lock, User } from "lucide-react";
 import { useState } from "react";
+import { TimezoneSelect } from "@/components/TimezoneSelect";
+import { getDetectedTimeZone } from "@/lib/dateTz";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -14,6 +16,7 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [registerTimezone, setRegisterTimezone] = useState(getDetectedTimeZone);
   const [loading, setLoading] = useState(false);
   const { login, register } = useLocalAuth();
   const [, navigate] = useLocation();
@@ -30,7 +33,13 @@ export default function LoginPage() {
         }
         navigate("/hoy");
       } else {
-        const result = await register(username, password, name || username, email || undefined);
+        const result = await register(
+          username,
+          password,
+          name || username,
+          email || undefined,
+          registerTimezone
+        );
         if (!result.success) {
           toast.error(result.error ?? "Error al registrarse");
           return;
@@ -124,6 +133,10 @@ export default function LoginPage() {
                   autoComplete="email"
                 />
               </div>
+            )}
+
+            {mode === "register" && (
+              <TimezoneSelect value={registerTimezone} onChange={setRegisterTimezone} id="register-tz" />
             )}
 
             <div className="space-y-1.5">
