@@ -10,6 +10,9 @@ build/
 # Environment variables
 .env
 .env.local
+
+# Secretos locales (nunca en repo ni en deploy por git)
+claves.txt
 .env.development.local
 .env.test.local
 .env.production.local

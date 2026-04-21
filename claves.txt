@@ -1,3 +1,0 @@
-el acceso ssh sería 
-ssh -p 2222 tucon4257@82.223.161.189
-hpdcua2001Ac_
