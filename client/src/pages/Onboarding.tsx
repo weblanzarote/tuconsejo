@@ -53,7 +53,10 @@ interface FormData {
   amigosIntimos: string;
   // Guardián
   guardianEnabled: boolean;
+  /** Una de las etiquetas predefinidas u "Otro" */
   marcoFilosofico: string;
+  /** Texto libre solo cuando marcoFilosofico === "Otro" */
+  marcoFilosoficoOtro: string;
   valoresCentro: string;
 }
 
@@ -64,8 +67,28 @@ const INITIAL_FORM: FormData = {
   peso: "", altura: "", condicionesMedicas: "", horasSueno: "", frecuenciaEjercicio: "", metaSalud: "",
   estadoPareja: "", nombrePareja: "", desafiosPareja: "",
   estadoCivil: "", hijos: "", situacionFamiliar: "", amigosIntimos: "",
-  guardianEnabled: false, marcoFilosofico: "", valoresCentro: "",
+  guardianEnabled: false, marcoFilosofico: "", marcoFilosoficoOtro: "", valoresCentro: "",
 };
+
+/** Etiqueta corta → descripción para la pantalla de onboarding (sin dogmatismo: orientación de lenguaje) */
+const MARCO_FILOSOFICO_DESCS: Record<string, string> = {
+  Estoico:
+    "Énfasis en lo que controlas, aceptación de lo externo, virtud y serenidad ante la adversidad (p. ej. Marco Aurelio, Epicteto).",
+  Cristiano:
+    "Perspectiva centrada en fe, caridad, perdón y sentido según la tradición cristiana; el tono será respetuoso y pastoral, no predicador.",
+  "Humanista Secular":
+    "Ética sin apelar a lo sobrenatural: dignidad humana, razón, empatía y responsabilidad en esta vida (p. ej. tradición tipo Paul Kurtz / humanismo del siglo XXI).",
+  Budista:
+    "Lente de sufrimiento, impermanencia, compasión y práctica consciente; sin imponer rituales: vocabulario y preguntas alineadas con esa sensibilidad.",
+  Islámico:
+    "Referencias éticas y espirituales dentro del respeto a la tradición islámica; tono prudente y no sectario.",
+  Otro: "Escribe abajo cómo nombras tu propia brújula (filosofía, escuela, mestizaje, etc.).",
+};
+
+function marcoGuardianLabel(form: FormData): string {
+  if (form.marcoFilosofico === "Otro") return form.marcoFilosoficoOtro.trim();
+  return form.marcoFilosofico.trim();
+}
 
 function StepIndicator({ currentStep }: { currentStep: number }) {
   return (
@@ -178,12 +201,14 @@ export default function Onboarding() {
         },
         valuesFramework: form.guardianEnabled
           ? {
-              marcoFilosofico: form.marcoFilosofico,
+              marcoFilosofico: marcoGuardianLabel(form) || form.marcoFilosofico,
               valoresCentro: form.valoresCentro,
             }
           : undefined,
         guardianEnabled: form.guardianEnabled,
-        guardianFramework: form.guardianEnabled ? form.marcoFilosofico : undefined,
+        guardianFramework: form.guardianEnabled
+          ? marcoGuardianLabel(form) || undefined
+          : undefined,
       });
       toast.success("¡Tu Consejo está listo!");
       navigate("/hoy");
@@ -482,12 +507,21 @@ export default function Onboarding() {
           {/* Paso 5: Guardián de Valores */}
           {step === 5 && (
             <div className="space-y-6 animate-fade-in-up">
-              <div className="bg-muted border border-border rounded-xl p-4">
+              <div className="bg-muted border border-border rounded-xl p-4 space-y-3">
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  El <strong className="text-foreground">Guardián de Valores</strong> es tu sexto asesor opcional.
-                  Actúa como un espejo socrático que asegura que todas tus decisiones estén alineadas
-                  con tus valores más profundos y tu propósito de vida.
+                  El <strong className="text-foreground">Guardián de Valores</strong> es tu sexto asesor opcional:
+                  un interlocutor que hace preguntas incómodas en el buen sentido —para comprobar si lo que planeas encaja con lo que dices que te importa.
                 </p>
+                <ul className="text-xs text-muted-foreground space-y-2 list-disc pl-4 leading-relaxed">
+                  <li>
+                    <strong className="text-foreground/90">Activar aquí</strong> guarda en tu perfil (La Bóveda) el marco y los valores que elijas abajo, para que{" "}
+                    <strong className="text-foreground/90">El Guardián</strong> y el resto del Consejo los tengan en cuenta al orientarte.
+                  </li>
+                  <li>
+                    <strong className="text-foreground/90">No activar</strong> no borra el chat: podrás hablar con El Guardián cuando quieras; solo que{" "}
+                    <strong className="text-foreground/90">no se guardan</strong> en este paso tu marco ni tu lista de valores (podrás completarlos después en Mi Perfil o con Lucía).
+                  </li>
+                </ul>
               </div>
 
               <div className="space-y-3">
@@ -496,6 +530,7 @@ export default function Onboarding() {
                 </p>
                 <div className="flex gap-3">
                   <button
+                    type="button"
                     onClick={() => update("guardianEnabled", true)}
                     className={cn(
                       "flex-1 py-3 rounded-xl border text-sm font-medium transition-all",
@@ -507,6 +542,7 @@ export default function Onboarding() {
                     🔮 Sí, activar
                   </button>
                   <button
+                    type="button"
                     onClick={() => update("guardianEnabled", false)}
                     className={cn(
                       "flex-1 py-3 rounded-xl border text-sm font-medium transition-all",
@@ -523,9 +559,15 @@ export default function Onboarding() {
               {form.guardianEnabled && (
                 <div className="space-y-4 animate-fade-in-up">
                   <FieldGroup label="Marco filosófico / espiritual">
+                    <p className="text-xs text-muted-foreground -mt-1 mb-2 leading-relaxed">
+                      Es la <strong className="text-foreground/80">lente</strong> o tradición con la que quieres que El Guardián hable (vocabulario y ejemplos),{" "}
+                      <strong className="text-foreground/80">no un examen de ortodoxia</strong>. La caja de &quot;valores&quot; de abajo es tu lista personal; si algo chocara,{" "}
+                      <strong className="text-foreground/80">prevalece lo que tú escribes</strong> como prioridad explícita.
+                    </p>
                     <div className="grid grid-cols-2 gap-2 mb-2">
                       {["Estoico", "Cristiano", "Humanista Secular", "Budista", "Islámico", "Otro"].map((marco) => (
                         <button
+                          type="button"
                           key={marco}
                           onClick={() => update("marcoFilosofico", marco)}
                           className={cn(
@@ -539,16 +581,26 @@ export default function Onboarding() {
                         </button>
                       ))}
                     </div>
+                    {form.marcoFilosofico && MARCO_FILOSOFICO_DESCS[form.marcoFilosofico] && (
+                      <p className="text-xs text-muted-foreground border border-border/60 rounded-lg p-3 bg-background/50 leading-relaxed mb-2">
+                        <span className="font-medium text-foreground/90">{form.marcoFilosofico}:</span>{" "}
+                        {MARCO_FILOSOFICO_DESCS[form.marcoFilosofico]}
+                      </p>
+                    )}
                     {form.marcoFilosofico === "Otro" && (
                       <Input
-                        placeholder="Especifica tu marco filosófico"
+                        placeholder="Especifica tu marco (ej. feminismo, perreo y estudio, tu mezcla personal…)"
                         className="bg-input border-border"
-                        onChange={(e) => update("marcoFilosofico", e.target.value)}
+                        value={form.marcoFilosoficoOtro}
+                        onChange={(e) => update("marcoFilosoficoOtro", e.target.value)}
                       />
                     )}
                   </FieldGroup>
 
                   <FieldGroup label="Tus valores más importantes">
+                    <p className="text-xs text-muted-foreground -mt-1 mb-2 leading-relaxed">
+                      Aquí va <strong className="text-foreground/80">tu lista corta</strong> de lo que no negocias (familia, honestidad, salud mental…). El marco de arriba ayuda al tono; esto es lo que el sistema trata como tu brújula explícita.
+                    </p>
                     <Textarea
                       value={form.valoresCentro}
                       onChange={(e) => update("valoresCentro", e.target.value)}

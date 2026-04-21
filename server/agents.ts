@@ -396,6 +396,15 @@ export function buildSystemPrompt(
     prompt += `\n\n--- MARCO FILOSÓFICO/ESPIRITUAL DEL USUARIO ---\nEl usuario ha elegido el marco: "${guardianFramework}". Adapta tu perspectiva a este sistema de valores.\n---`;
   }
 
+  // Si el usuario escribió valores explícitos en La Bóveda, tienen prioridad sobre generalidades del marco
+  if (agentId === "guardian" && vaultData) {
+    const vf = vaultData.valuesFramework as { valoresCentro?: string } | undefined;
+    const vc = typeof vf?.valoresCentro === "string" ? vf.valoresCentro.trim() : "";
+    if (vc) {
+      prompt += `\n\n--- PRIORIDAD (VALORES ESCRITOS) ---\nEl usuario definió en "valoresCentro" sus prioridades explícitas. Si hubiera tensión entre eso y clichés del marco filosófico, parte de sus palabras y dialoga desde ahí; no impongas el marco por encima de lo que él escribió.\n---`;
+    }
+  }
+
   return prompt;
 }
 
