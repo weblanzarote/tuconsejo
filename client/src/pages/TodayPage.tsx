@@ -1,7 +1,8 @@
 import { trpc } from "@/lib/trpc";
 import { useCallback, useEffect, useRef, useState } from "react";
 import DiaryEntry from "@/components/DiaryEntry";
-import { ChevronDown, ChevronUp, MapPin, Save, Send, CheckCircle2, Circle } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, MapPin, Save, Send, CheckCircle2, Circle } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import {
@@ -41,6 +42,27 @@ const MOOD_OPTIONS = [
   { value: "mal", label: "Mal", color: "#8A5C4A" },
 ] as const;
 
+const DIARY_DEBOUNCE_MS = 800;
+
+/** El API (Zod) espera { name }[]; la UI trabaja con string[] */
+function locationsToPayload(locs: string[]): { name: string }[] | undefined {
+  if (locs.length === 0) return undefined;
+  return locs.map((name) => ({ name }));
+}
+
+function locationsFromEntry(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (item && typeof item === "object" && "name" in item && typeof (item as { name: unknown }).name === "string") {
+        return (item as { name: string }).name;
+      }
+      return "";
+    })
+    .filter(Boolean);
+}
+
 // ─── Markdown simple (reutilizado de AsesoresPage) ────────────────────────────
 function SimpleMarkdown({ text }: { text: string }) {
   const cleaned = text.replace(/```json[\s\S]*?```/g, "").trim();
@@ -68,6 +90,10 @@ export default function TodayPage() {
   const [promptsOpen, setPromptsOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const diaryStateRef = useRef({ content: "", mood: null as typeof mood, savedLocations: [] as string[] });
+  diaryStateRef.current = { content, mood, savedLocations };
+
+  const utils = trpc.useUtils();
 
   // Consulta rápida
   const [quickQuestion, setQuickQuestion] = useState("");
@@ -76,7 +102,15 @@ export default function TodayPage() {
 
   const { data: entry, isLoading } = trpc.diary.getEntry.useQuery({ date: today });
   const { data: recentEntries } = trpc.diary.listRecent.useQuery({ limit: 8 });
-  const upsert = trpc.diary.upsertEntry.useMutation();
+  const upsert = trpc.diary.upsertEntry.useMutation({
+    onSuccess: async () => {
+      await utils.diary.getEntry.invalidate({ date: today });
+      await utils.diary.listRecent.invalidate();
+    },
+    onError: () => {
+      toast.error("No se pudo guardar el diario. Comprueba la conexión e inténtalo de nuevo.");
+    },
+  });
 
   // Señales y tareas para el dashboard
   const { data: pulseData } = trpc.signals.pulseOfDay.useQuery(undefined, {
@@ -130,32 +164,65 @@ export default function TodayPage() {
     if (entry) {
       setContent(entry.content ?? "");
       setMood(entry.mood ?? null);
-      const locs = entry.locationData as string[] | null;
-      if (Array.isArray(locs)) setSavedLocations(locs);
+      setSavedLocations(locationsFromEntry(entry.locationData));
     }
   }, [entry]);
 
   const save = useCallback(
     async (newContent: string, newMood: typeof mood, locs?: string[]) => {
+      const locList = locs ?? diaryStateRef.current.savedLocations;
       setSaveStatus("saving");
-      await upsert.mutateAsync({
-        date: today,
-        content: newContent,
-        mood: newMood,
-        locationData: (locs ?? savedLocations) as any,
-      });
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      try {
+        await upsert.mutateAsync({
+          date: today,
+          content: newContent,
+          mood: newMood,
+          locationData: locationsToPayload(locList),
+        });
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      } catch {
+        setSaveStatus("idle");
+      }
     },
-    [today, savedLocations, upsert]
+    [today, upsert]
   );
 
-  // Auto-save con debounce
+  /** Guarda ya mismo (sin esperar al debounce): al salir del campo, botón, o al desmontar la vista */
+  const flushPendingSave = useCallback(async () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    const { content: c, mood: m, savedLocations: locs } = diaryStateRef.current;
+    await save(c, m, locs);
+  }, [save]);
+
+  // Si había un guardado pendiente (usuario escribió y salió antes del debounce), persistir al desmontar
+  useEffect(() => {
+    return () => {
+      if (!debounceRef.current) return;
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      const { content: c, mood: m, savedLocations: locs } = diaryStateRef.current;
+      void upsert.mutate({
+        date: today,
+        content: c,
+        mood: m,
+        locationData: locationsToPayload(locs),
+      });
+    };
+  }, [today, upsert]);
+
+  // Auto-save con debounce (al disparar, lee el texto actual del ref por si seguiste escribiendo)
   const handleContentChange = (val: string) => {
     setContent(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     setSaveStatus("idle");
-    debounceRef.current = setTimeout(() => save(val, mood), 1500);
+    debounceRef.current = setTimeout(() => {
+      const { content: c, mood: m } = diaryStateRef.current;
+      void save(c, m);
+    }, DIARY_DEBOUNCE_MS);
   };
 
   const handleMoodChange = (val: "bien" | "regular" | "mal") => {
@@ -185,7 +252,10 @@ export default function TodayPage() {
       : `${prompt}\n`;
     setContent(newContent);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => save(newContent, mood), 1500);
+    debounceRef.current = setTimeout(() => {
+      const { content: c, mood: m } = diaryStateRef.current;
+      void save(c, m);
+    }, DIARY_DEBOUNCE_MS);
   };
 
   const pastEntries = (recentEntries ?? []).filter((e) => e.date !== today);
@@ -193,10 +263,28 @@ export default function TodayPage() {
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
       {/* ── Cabecera ── */}
-      <div className="space-y-1">
-        <h1 className="font-diary text-3xl text-foreground capitalize">
-          {formatDateLong(today)}
-        </h1>
+      <div className="space-y-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <h1 className="font-diary text-3xl text-foreground capitalize">
+            {formatDateLong(today)}
+          </h1>
+          <button
+            type="button"
+            onClick={() => void flushPendingSave()}
+            disabled={saveStatus === "saving"}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+          >
+            {saveStatus === "saving" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Guardar ahora
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
+          El texto se guarda solo unos segundos después de dejar de escribir. Si cambias de página antes, pulsa «Guardar ahora» o sal del cuadro de texto (toca fuera) para no perder nada.
+        </p>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {saveStatus === "saving" && <span>Guardando...</span>}
           {saveStatus === "saved" && (
@@ -383,6 +471,7 @@ export default function TodayPage() {
         <DiaryEntry
           value={content}
           onChange={handleContentChange}
+          onBlur={() => void flushPendingSave()}
           placeholder="Escribe libremente sobre tu día. ¿Qué ha pasado? ¿Cómo te has sentido? No hay formato correcto..."
         />
       )}

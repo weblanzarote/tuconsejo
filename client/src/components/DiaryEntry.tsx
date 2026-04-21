@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 interface DiaryEntryProps {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -12,6 +13,7 @@ interface DiaryEntryProps {
 export default function DiaryEntry({
   value,
   onChange,
+  onBlur,
   disabled = false,
   placeholder = "Escribe libremente sobre tu día...",
   className,
@@ -31,6 +33,7 @@ export default function DiaryEntry({
       ref={ref}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
       disabled={disabled}
       placeholder={placeholder}
       className={cn(
