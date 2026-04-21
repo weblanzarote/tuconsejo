@@ -313,20 +313,15 @@ export default function AsesoresPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Lucía — perfil progresivo (chat 1:1, no entra en consultas múltiples) */}
-      <div className="pb-2">
+      {/* Lucía — perfil progresivo */}
+      <div className="pb-1 flex justify-start">
         <Link
           href="/chat/encuestador"
-          className="flex items-center gap-3 p-3 rounded-xl border border-border/80 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded-full border border-border/40 hover:border-border/80"
         >
-          <span className="text-xl flex-shrink-0" aria-hidden>📋</span>
-          <div className="min-w-0 text-left">
-            <p className="text-sm font-medium text-foreground">Lucía — Encuestadora</p>
-            <p className="text-xs text-muted-foreground">
-              Mini-cuestionarios opcionales para ir rellenando tu perfil con calma. Cuantos más datos compartas (cuando quieras), mejor te orientarán los demás asesores.
-            </p>
-          </div>
-          <span className="text-xs text-muted-foreground flex-shrink-0">Abrir chat →</span>
+          <span aria-hidden>📋</span>
+          <span>Lucía — completar perfil</span>
+          <span className="opacity-50">→</span>
         </Link>
       </div>
 

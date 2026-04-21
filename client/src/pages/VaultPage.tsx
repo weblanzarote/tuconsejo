@@ -14,8 +14,11 @@ import {
   Loader2,
   Save,
   X,
+  Sparkles,
+  Download,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 import { toast } from "sonner";
 
 interface VaultSection {
@@ -355,6 +358,68 @@ export default function VaultPage() {
             onSave={handleSave}
           />
         ))}
+      </div>
+
+      <AppSection />
+    </div>
+  );
+}
+
+function AppSection() {
+  const { canInstall, isInstalled, install } = useInstallPrompt();
+  const generateIcon = trpc.system.generateAppIcon.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Icono generado con ${data.source}. Recarga la página para verlo.`);
+    },
+    onError: (err) => {
+      toast.error(`No se pudo generar el icono: ${err.message}`);
+    },
+  });
+
+  return (
+    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">App instalable</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Añade Consejo Sinérgico a tu pantalla de inicio para acceder sin abrir el navegador.
+        </p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2">
+        {isInstalled ? (
+          <p className="text-xs text-[#5C8A6D] flex items-center gap-1.5">
+            <Download className="h-3.5 w-3.5" /> App ya instalada
+          </p>
+        ) : canInstall ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void install()}
+            className="gap-2 text-xs"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Instalar app
+          </Button>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            En iOS: toca <strong>Compartir → Añadir a pantalla de inicio</strong>. En Android/Chrome el botón "Instalar" aparecerá en el menú lateral cuando el navegador lo ofrezca.
+          </p>
+        )}
+
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => generateIcon.mutate()}
+          disabled={generateIcon.isPending}
+          className="gap-2 text-xs"
+        >
+          {generateIcon.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" />
+          )}
+          Generar icono con IA
+        </Button>
       </div>
     </div>
   );

@@ -10,8 +10,10 @@ import {
   LogOut,
   FileText,
   ChevronRight,
+  Download,
 } from "lucide-react";
 import { useState } from "react";
+import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 import { Link, useLocation } from "wouter";
 import { Button } from "./ui/button";
 
@@ -30,6 +32,7 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
   const [location, navigate] = useLocation();
   const { user, logout } = useLocalAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { canInstall, isInstalled, install } = useInstallPrompt();
   const { data: pendingData } = trpc.signals.pendingCount.useQuery(undefined, {
     refetchInterval: 60_000,
     retry: false,
@@ -113,6 +116,15 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
             </div>
             <ChevronRight className="h-3 w-3 text-muted-foreground/40 flex-shrink-0 group-hover:text-muted-foreground transition-colors" />
           </button>
+          {canInstall && !isInstalled && (
+            <button
+              onClick={() => void install()}
+              className="flex items-center gap-2 px-3 py-1.5 w-full rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5 flex-shrink-0" />
+              <span>Instalar app</span>
+            </button>
+          )}
           <button
             onClick={logout}
             className="flex items-center gap-2 px-3 py-1.5 w-full rounded-md text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors cursor-pointer"
