@@ -65,9 +65,28 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  const preferredPort = parseInt(process.env.PORT || "3000", 10);
 
+  // En producción el proxy (CyberPanel / OpenLiteSpeed) debe apuntar al mismo puerto
+  // que PORT en .env — no buscar otro puerto libre ni dejar el bind ambiguo (IPv4 vs IPv6).
+  if (process.env.NODE_ENV === "production") {
+    const host = process.env.HOST ?? "0.0.0.0";
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      console.error(`[Server] No se pudo escuchar en ${host}:${preferredPort}:`, err.message);
+      if (err.code === "EADDRINUSE") {
+        console.error(
+          "[Server] Puerto en uso. Comprueba con: ss -tlnp | grep " + preferredPort
+        );
+      }
+      process.exit(1);
+    });
+    server.listen(preferredPort, host, () => {
+      console.log(`Server running on http://${host}:${preferredPort}/`);
+    });
+    return;
+  }
+
+  const port = await findAvailablePort(preferredPort);
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
