@@ -494,7 +494,17 @@ export default function TodayPage() {
           "bg-background/65 dark:bg-background/45 backdrop-blur-md shadow-sm"
         )}
       >
-        <p className="text-xs text-muted-foreground uppercase tracking-wider">Tu diario</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">Tu diario</p>
+          <Link href="/diario">
+            <span className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2 cursor-pointer">
+              Ver historial →
+            </span>
+          </Link>
+        </div>
+        <p className="text-[11px] text-muted-foreground/70 -mt-2">
+          Una nota por día; puedes volver a guardar cuando quieras.
+        </p>
 
         {!hasLoadedEntry ? (
           <div className="space-y-3 py-4">

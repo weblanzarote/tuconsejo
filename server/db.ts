@@ -522,6 +522,25 @@ export async function getRecentDiaryEntries(userId: number, limit = 30) {
     .limit(limit);
 }
 
+export async function searchDiaryEntries(userId: number, query: string, limit = 20) {
+  const db = getDb();
+  return db
+    .select()
+    .from(diaryEntries)
+    .where(and(eq(diaryEntries.userId, userId), like(diaryEntries.content, `%${query}%`)))
+    .orderBy(desc(diaryEntries.date))
+    .limit(limit);
+}
+
+export async function getDiaryEntriesByMonth(userId: number, yearMonth: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(diaryEntries)
+    .where(and(eq(diaryEntries.userId, userId), like(diaryEntries.date, `${yearMonth}%`)))
+    .orderBy(desc(diaryEntries.date));
+}
+
 // ─── Helpers de Notas ─────────────────────────────────────────────────────────
 export async function getNotesByUser(userId: number) {
   const db = getDb();

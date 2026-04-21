@@ -14,6 +14,7 @@ import Chat from "./pages/Chat";
 import Boardroom from "./pages/Boardroom";
 import VaultPage from "./pages/VaultPage";
 import TodayPage from "./pages/TodayPage";
+import DiaryHistoryPage from "./pages/DiaryHistoryPage";
 import AsesoresPage from "./pages/AsesoresPage";
 import CorreosPage from "./pages/CorreosPage";
 import ApuntesPage from "./pages/ApuntesPage";
@@ -79,6 +80,9 @@ function Router() {
       {/* Secciones principales */}
       <Route path="/hoy">
         {() => <ProtectedRoute component={TodayPage} />}
+      </Route>
+      <Route path="/diario">
+        {() => <ProtectedRoute component={DiaryHistoryPage} />}
       </Route>
       <Route path="/correos">
         {() => <ProtectedRoute component={CorreosPage} />}

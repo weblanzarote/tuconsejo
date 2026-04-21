@@ -24,6 +24,8 @@ import {
   getDiaryEntry,
   upsertDiaryEntry,
   getRecentDiaryEntries,
+  searchDiaryEntries,
+  getDiaryEntriesByMonth,
   getNotesByUser,
   insertNote,
   updateNote,
@@ -507,6 +509,18 @@ const diaryRouter = router({
     .input(z.object({ limit: z.number().min(1).max(90).default(30) }))
     .query(async ({ ctx, input }) => {
       return getRecentDiaryEntries(ctx.user.id, input.limit);
+    }),
+
+  listMonth: protectedProcedure
+    .input(z.object({ yearMonth: z.string().regex(/^\d{4}-\d{2}$/) }))
+    .query(async ({ ctx, input }) => {
+      return getDiaryEntriesByMonth(ctx.user.id, input.yearMonth);
+    }),
+
+  search: protectedProcedure
+    .input(z.object({ query: z.string().min(1).max(200) }))
+    .query(async ({ ctx, input }) => {
+      return searchDiaryEntries(ctx.user.id, input.query);
     }),
 });
 
