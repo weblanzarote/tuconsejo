@@ -1,0 +1,202 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.75rem;
+  /* Paleta Dark Premium Glassmorphism */
+  --background: #000000;
+  --foreground: #F5F5F5;
+  
+  /* Cards translúcidas en lugar de color sólido */
+  --card: rgba(20, 20, 20, 0.4);
+  --card-foreground: #F5F5F5;
+  
+  --popover: rgba(20, 20, 20, 0.6);
+  --popover-foreground: #F5F5F5;
+  
+  /* Acentos vibrantes / Neón sutil */
+  --primary: #A277FF;
+  --primary-foreground: #FFFFFF;
+  
+  --secondary: rgba(255, 255, 255, 0.1);
+  --secondary-foreground: #F5F5F5;
+  
+  --muted: rgba(255, 255, 255, 0.05);
+  --muted-foreground: #A0A0A0;
+  
+  --accent: rgba(162, 119, 255, 0.15);
+  --accent-foreground: #FFFFFF;
+  
+  --destructive: #FF4A4A;
+  --destructive-foreground: #FFFFFF;
+  
+  /* Bordes semi-transparentes para el cristal */
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.05);
+  --ring: rgba(162, 119, 255, 0.4);
+  
+  --chart-1: #A277FF;
+  --chart-2: #41C9E2;
+  --chart-3: #FF8A65;
+  --chart-4: #F48FB1;
+  --chart-5: #E6EE9C;
+  
+  /* Sidebar translúcido */
+  --sidebar: rgba(10, 10, 10, 0.6);
+  --sidebar-foreground: #F5F5F5;
+  --sidebar-primary: #A277FF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: rgba(255, 255, 255, 0.1);
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: rgba(162, 119, 255, 0.4);
+}
+
+/* ─── Glassmorphism Utilities ─── */
+@layer utilities {
+  .glass-panel {
+    @apply bg-black/30 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)];
+  }
+  .glass-surface {
+    @apply bg-white/5 backdrop-blur-md border border-white/5;
+  }
+}
+
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Inter", system-ui, sans-serif;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+      max-width: 1280px;
+    }
+  }
+}
+
+/* ─── Utilidades ──────────────────────────────────────────────────────────── */
+@layer utilities {
+  .font-display {
+    font-family: "Playfair Display", Georgia, serif;
+  }
+
+  .font-diary {
+    font-family: "Lora", "Playfair Display", Georgia, serif;
+    line-height: 1.85;
+    letter-spacing: 0.01em;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* ─── Animaciones ─────────────────────────────────────────────────────────── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.35s ease-out forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out forwards;
+}
+
+/* ─── Chat / Diary Markdown ───────────────────────────────────────────────── */
+.chat-markdown p { margin-bottom: 0.75rem; }
+.chat-markdown ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.chat-markdown ol { list-style: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.chat-markdown strong { font-weight: 600; }
+.chat-markdown h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 0.75rem; font-family: "Inter", sans-serif; }
+.chat-markdown code { background: rgba(255, 255, 255, 0.1); padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.8rem; font-family: "JetBrains Mono", monospace; color: #FFFFFF; }
+.chat-markdown pre { background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; }
+.chat-markdown blockquote { border-left: 2px solid #A277FF; padding-left: 0.75rem; font-style: italic; color: #A0A0A0; }
+.chat-markdown a { color: #A277FF; text-decoration: underline; text-underline-offset: 2px; }

@@ -1,0 +1,796 @@
+import { eq, and, desc, or, like, isNotNull } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
+import {
+  users,
+  vault,
+  conversations,
+  messages,
+  actionItems,
+  memoryEntries,
+  diaryEntries,
+  notes,
+  userIntegrations,
+  emailSignals,
+  type InsertUser,
+  type InsertVault,
+  type InsertConversation,
+  type InsertMessage,
+  type InsertActionItem,
+  type InsertMemoryEntry,
+  type InsertDiaryEntry,
+  type InsertNote,
+  type InsertEmailSignal,
+} from "../drizzle/schema";
+
+// ─── Inicialización de la base de datos SQLite ────────────────────────────────
+const DB_PATH = process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "consejo.db");
+
+let _db: ReturnType<typeof drizzle> | null = null;
+
+export function getDb() {
+  if (!_db) {
+    // Crear el directorio si no existe
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const sqlite = new Database(DB_PATH);
+    // Activar WAL mode para mejor rendimiento
+    sqlite.pragma("journal_mode = WAL");
+    sqlite.pragma("foreign_keys = ON");
+    _db = drizzle(sqlite);
+  }
+  return _db;
+}
+
+// ─── Inicialización del esquema (crea tablas si no existen) ───────────────────
+export function initializeDatabase() {
+  const db = getDb();
+  const sqlite = new Database(DB_PATH);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      email TEXT UNIQUE,
+      passwordHash TEXT NOT NULL,
+      name TEXT,
+      role TEXT NOT NULL DEFAULT 'user',
+      onboardingCompleted INTEGER NOT NULL DEFAULT 0,
+      guardianEnabled INTEGER NOT NULL DEFAULT 0,
+      valuesFrameworkName TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      lastSignedIn INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS vault (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      financialStatus TEXT,
+      careerData TEXT,
+      healthMetrics TEXT,
+      relationshipStatus TEXT,
+      familyCircle TEXT,
+      valuesFramework TEXT,
+      personalInfo TEXT,
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      agentId TEXT NOT NULL,
+      title TEXT,
+      messageCount INTEGER NOT NULL DEFAULT 0,
+      summary TEXT,
+      lastSummaryAt INTEGER,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversationId INTEGER NOT NULL,
+      userId INTEGER NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      agentId TEXT,
+      structuredData TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS action_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      conversationId INTEGER,
+      agentId TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      priority TEXT NOT NULL DEFAULT 'media',
+      status TEXT NOT NULL DEFAULT 'pendiente',
+      deadline INTEGER,
+      metrica TEXT,
+      valorObjetivo TEXT,
+      completedAt INTEGER,
+      sourceMessageId INTEGER,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS memory_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      agentId TEXT NOT NULL,
+      content TEXT NOT NULL,
+      importance TEXT NOT NULL DEFAULT 'media',
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS diary_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      locationData TEXT,
+      mood TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      tag TEXT NOT NULL DEFAULT 'otro',
+      isPinned INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS user_integrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'google',
+      connectedEmail TEXT NOT NULL DEFAULT '',
+      label TEXT,
+      accessToken TEXT,
+      refreshToken TEXT,
+      tokenExpiry INTEGER,
+      imapHost TEXT,
+      imapPort INTEGER,
+      imapUsername TEXT,
+      imapPasswordEncrypted TEXT,
+      smtpHost TEXT,
+      smtpPort INTEGER,
+      smtpSecure INTEGER DEFAULT 1,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS email_signals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      integrationId INTEGER,
+      gmailMessageId TEXT NOT NULL,
+      subject TEXT NOT NULL DEFAULT '',
+      fromAddress TEXT NOT NULL DEFAULT '',
+      fromName TEXT NOT NULL DEFAULT '',
+      snippet TEXT NOT NULL DEFAULT '',
+      fullBody TEXT,
+      receivedAt INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      draftReply TEXT,
+      taskId INTEGER,
+      googleCalendarEventId TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+  `);
+
+  // Migraciones para columnas añadidas en versiones posteriores
+  const migrations = [
+    "ALTER TABLE action_items ADD COLUMN metrica TEXT",
+    "ALTER TABLE action_items ADD COLUMN valorObjetivo TEXT",
+    "ALTER TABLE action_items ADD COLUMN googleCalendarEventId TEXT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS diary_entries_user_date ON diary_entries(userId, date)",
+    // Migraciones para multi-cuenta
+    "ALTER TABLE user_integrations ADD COLUMN label TEXT",
+    "ALTER TABLE user_integrations ADD COLUMN imapHost TEXT",
+    "ALTER TABLE user_integrations ADD COLUMN imapPort INTEGER",
+    "ALTER TABLE user_integrations ADD COLUMN imapUsername TEXT",
+    "ALTER TABLE user_integrations ADD COLUMN imapPasswordEncrypted TEXT",
+    "ALTER TABLE user_integrations ADD COLUMN smtpHost TEXT",
+    "ALTER TABLE user_integrations ADD COLUMN smtpPort INTEGER",
+    "ALTER TABLE user_integrations ADD COLUMN smtpSecure INTEGER DEFAULT 1",
+    "ALTER TABLE email_signals ADD COLUMN integrationId INTEGER",
+    "CREATE UNIQUE INDEX IF NOT EXISTS email_signals_user_gmail ON email_signals(userId, gmailMessageId)",
+    "CREATE INDEX IF NOT EXISTS user_integrations_user_provider ON user_integrations(userId, provider)",
+    "ALTER TABLE users ADD COLUMN emailFilterPrefs TEXT",
+    "ALTER TABLE action_items ADD COLUMN tipo TEXT NOT NULL DEFAULT 'tarea'",
+    "ALTER TABLE email_signals ADD COLUMN classifierUserFeedback TEXT",
+  ];
+  for (const migration of migrations) {
+    try { sqlite.exec(migration); } catch (_) { /* columna ya existe */ }
+  }
+
+  sqlite.close();
+  console.log(`[Database] SQLite initialized at: ${DB_PATH}`);
+}
+
+// ─── Helpers de Usuario ───────────────────────────────────────────────────────
+export async function createUser(data: {
+  username: string;
+  email?: string;
+  passwordHash: string;
+  name?: string;
+}): Promise<typeof users.$inferSelect> {
+  const db = getDb();
+  const result = await db
+    .insert(users)
+    .values({
+      username: data.username,
+      email: data.email ?? null,
+      passwordHash: data.passwordHash,
+      name: data.name ?? null,
+    })
+    .returning();
+  return result[0];
+}
+
+export async function getUserByUsername(username: string) {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function getUserById(id: number) {
+  const db = getDb();
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return result[0] ?? null;
+}
+
+export async function updateUserLastSignedIn(id: number) {
+  const db = getDb();
+  await db
+    .update(users)
+    .set({ lastSignedIn: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, id));
+}
+
+export async function updateUserOnboarding(
+  userId: number,
+  data: {
+    onboardingCompleted?: boolean;
+    guardianEnabled?: boolean;
+    valuesFrameworkName?: string;
+    name?: string;
+  }
+) {
+  const db = getDb();
+  await db
+    .update(users)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+export async function getEmailFilterPrefs(userId: number): Promise<string | null> {
+  const db = getDb();
+  const result = await db.select({ emailFilterPrefs: users.emailFilterPrefs }).from(users).where(eq(users.id, userId)).limit(1);
+  return result[0]?.emailFilterPrefs ?? null;
+}
+
+export async function setEmailFilterPrefs(userId: number, prefs: string) {
+  const db = getDb();
+  await db.update(users).set({ emailFilterPrefs: prefs, updatedAt: new Date() }).where(eq(users.id, userId));
+}
+
+// ─── Helpers de La Bóveda ─────────────────────────────────────────────────────
+export async function getVaultByUserId(userId: number) {
+  const db = getDb();
+  const result = await db.select().from(vault).where(eq(vault.userId, userId)).limit(1);
+  return result[0] ?? null;
+}
+
+export async function upsertVault(userId: number, data: Partial<InsertVault>) {
+  const db = getDb();
+  const existing = await getVaultByUserId(userId);
+  if (existing) {
+    await db
+      .update(vault)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(vault.userId, userId));
+  } else {
+    await db.insert(vault).values({ userId, ...data });
+  }
+}
+
+// ─── Helpers de Conversaciones ────────────────────────────────────────────────
+export async function getConversationsByUser(userId: number) {
+  const db = getDb();
+  return db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.userId, userId))
+    .orderBy(desc(conversations.updatedAt));
+}
+
+export async function getOrCreateConversation(
+  userId: number,
+  agentId: string
+): Promise<typeof conversations.$inferSelect> {
+  const db = getDb();
+  const existing = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.userId, userId), eq(conversations.agentId, agentId as any)))
+    .limit(1);
+
+  if (existing[0]) return existing[0];
+
+  const result = await db
+    .insert(conversations)
+    .values({ userId, agentId: agentId as any })
+    .returning();
+  return result[0];
+}
+
+export async function incrementMessageCount(conversationId: number, currentCount?: number) {
+  const db = getDb();
+  if (currentCount !== undefined) {
+    await db
+      .update(conversations)
+      .set({ messageCount: currentCount + 1, updatedAt: new Date() })
+      .where(eq(conversations.id, conversationId));
+  } else {
+    // Incrementar usando SQL directo
+    const conv = await db.select({ count: conversations.messageCount }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+    const count = conv[0]?.count ?? 0;
+    await db
+      .update(conversations)
+      .set({ messageCount: count + 1, updatedAt: new Date() })
+      .where(eq(conversations.id, conversationId));
+  }
+}
+
+export async function updateConversationSummary(
+  conversationId: number,
+  summary: string,
+  messageCount: number
+) {
+  const db = getDb();
+  await db
+    .update(conversations)
+    .set({ summary, lastSummaryAt: messageCount, updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId));
+}
+
+// ─── Helpers de Mensajes ──────────────────────────────────────────────────────
+export async function getMessagesByConversation(conversationId: number, limit?: number) {
+  const db = getDb();
+  if (limit !== undefined) {
+    const rows = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(limit);
+    return rows.reverse();
+  }
+  return db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(messages.createdAt);
+}
+
+export async function insertMessage(data: InsertMessage) {
+  const db = getDb();
+  const result = await db.insert(messages).values(data).returning();
+  return result[0];
+}
+
+// ─── Helpers del Plan de Acción ───────────────────────────────────────────────
+export async function getActionItemsByUser(userId: number, agentId?: string) {
+  const db = getDb();
+  if (agentId) {
+    return db
+      .select()
+      .from(actionItems)
+      .where(and(eq(actionItems.userId, userId), eq(actionItems.agentId, agentId as any)))
+      .orderBy(desc(actionItems.createdAt));
+  }
+  return db
+    .select()
+    .from(actionItems)
+    .where(eq(actionItems.userId, userId))
+    .orderBy(desc(actionItems.createdAt));
+}
+
+export async function insertActionItem(data: InsertActionItem) {
+  const db = getDb();
+  const result = await db.insert(actionItems).values(data).returning();
+  return result[0];
+}
+
+export async function updateActionItemTipo(id: number, userId: number, tipo: "tarea" | "habito") {
+  const db = getDb();
+  await db.update(actionItems).set({ tipo, updatedAt: new Date() })
+    .where(and(eq(actionItems.id, id), eq(actionItems.userId, userId)));
+}
+
+export async function updateActionItemStatus(
+  id: number,
+  userId: number,
+  status: "pendiente" | "en_progreso" | "completada" | "cancelada"
+) {
+  const db = getDb();
+  await db
+    .update(actionItems)
+    .set({
+      status,
+      completedAt: status === "completada" ? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(actionItems.id, id), eq(actionItems.userId, userId)));
+}
+
+export async function deleteActionItem(id: number, userId: number) {
+  const db = getDb();
+  await db
+    .delete(actionItems)
+    .where(and(eq(actionItems.id, id), eq(actionItems.userId, userId)));
+}
+
+// ─── Helpers de Memoria ───────────────────────────────────────────────────────
+export async function getMemoryByAgent(userId: number, agentId: string, limit = 10) {
+  const db = getDb();
+  return db
+    .select()
+    .from(memoryEntries)
+    .where(and(eq(memoryEntries.userId, userId), eq(memoryEntries.agentId, agentId as any)))
+    .orderBy(desc(memoryEntries.createdAt))
+    .limit(limit);
+}
+
+export async function insertMemoryEntry(data: InsertMemoryEntry) {
+  const db = getDb();
+  await db.insert(memoryEntries).values(data);
+}
+
+// ─── Helpers de Diario ────────────────────────────────────────────────────────
+export async function getDiaryEntry(userId: number, date: string) {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(diaryEntries)
+    .where(and(eq(diaryEntries.userId, userId), eq(diaryEntries.date, date)))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function upsertDiaryEntry(
+  userId: number,
+  date: string,
+  data: { content?: string; mood?: "bien" | "regular" | "mal" | null; locationData?: unknown }
+) {
+  const db = getDb();
+  const existing = await getDiaryEntry(userId, date);
+  const now = new Date();
+  if (existing) {
+    await db
+      .update(diaryEntries)
+      .set({ ...data, updatedAt: now })
+      .where(and(eq(diaryEntries.userId, userId), eq(diaryEntries.date, date)));
+    return getDiaryEntry(userId, date);
+  } else {
+    const result = await db
+      .insert(diaryEntries)
+      .values({ userId, date, content: data.content ?? "", mood: data.mood ?? null, locationData: data.locationData ?? null })
+      .returning();
+    return result[0];
+  }
+}
+
+export async function getRecentDiaryEntries(userId: number, limit = 30) {
+  const db = getDb();
+  return db
+    .select()
+    .from(diaryEntries)
+    .where(eq(diaryEntries.userId, userId))
+    .orderBy(desc(diaryEntries.date))
+    .limit(limit);
+}
+
+// ─── Helpers de Notas ─────────────────────────────────────────────────────────
+export async function getNotesByUser(userId: number) {
+  const db = getDb();
+  return db
+    .select()
+    .from(notes)
+    .where(eq(notes.userId, userId))
+    .orderBy(desc(notes.isPinned), desc(notes.updatedAt));
+}
+
+export async function getNoteById(userId: number, id: number) {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(notes)
+    .where(and(eq(notes.id, id), eq(notes.userId, userId)))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function insertNote(userId: number, data: Omit<InsertNote, "userId" | "id" | "createdAt" | "updatedAt">) {
+  const db = getDb();
+  const result = await db
+    .insert(notes)
+    .values({ userId, ...data })
+    .returning();
+  return result[0];
+}
+
+export async function updateNote(
+  userId: number,
+  id: number,
+  data: Partial<Pick<InsertNote, "title" | "content" | "tag" | "isPinned">>
+) {
+  const db = getDb();
+  await db
+    .update(notes)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(eq(notes.id, id), eq(notes.userId, userId)));
+  return getNoteById(userId, id);
+}
+
+export async function deleteNote(userId: number, id: number) {
+  const db = getDb();
+  await db.delete(notes).where(and(eq(notes.id, id), eq(notes.userId, userId)));
+}
+
+export async function searchNotes(userId: number, query: string) {
+  const db = getDb();
+  const q = `%${query}%`;
+  return db
+    .select()
+    .from(notes)
+    .where(
+      and(
+        eq(notes.userId, userId),
+        or(like(notes.title, q), like(notes.content, q))
+      )
+    )
+    .orderBy(desc(notes.updatedAt));
+}
+
+// ─── Helpers de Integraciones (multi-cuenta) ──────────────────────────────────
+export type ProviderName = "google" | "microsoft" | "imap";
+
+export async function getIntegrationsByUser(userId: number) {
+  const db = getDb();
+  return db
+    .select()
+    .from(userIntegrations)
+    .where(eq(userIntegrations.userId, userId))
+    .orderBy(userIntegrations.createdAt);
+}
+
+export async function getIntegrationById(userId: number, id: number) {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(userIntegrations)
+    .where(and(eq(userIntegrations.id, id), eq(userIntegrations.userId, userId)))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function getIntegrationByEmail(userId: number, provider: ProviderName, email: string) {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(userIntegrations)
+    .where(
+      and(
+        eq(userIntegrations.userId, userId),
+        eq(userIntegrations.provider, provider),
+        eq(userIntegrations.connectedEmail, email)
+      )
+    )
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function upsertOAuthIntegration(
+  userId: number,
+  provider: "google" | "microsoft",
+  connectedEmail: string,
+  data: { accessToken?: string; refreshToken?: string; tokenExpiry?: Date; label?: string }
+) {
+  const db = getDb();
+  const existing = await getIntegrationByEmail(userId, provider, connectedEmail);
+  const now = new Date();
+  if (existing) {
+    await db
+      .update(userIntegrations)
+      .set({ ...data, updatedAt: now })
+      .where(eq(userIntegrations.id, existing.id));
+    return existing.id;
+  } else {
+    const result = await db
+      .insert(userIntegrations)
+      .values({
+        userId,
+        provider,
+        connectedEmail,
+        refreshToken: data.refreshToken ?? null,
+        accessToken: data.accessToken ?? null,
+        tokenExpiry: data.tokenExpiry ?? null,
+        label: data.label ?? null,
+      })
+      .returning();
+    return result[0].id;
+  }
+}
+
+export async function insertImapIntegration(
+  userId: number,
+  data: {
+    connectedEmail: string;
+    label?: string;
+    imapHost: string;
+    imapPort: number;
+    imapUsername: string;
+    imapPasswordEncrypted: string;
+    smtpHost: string;
+    smtpPort: number;
+    smtpSecure: boolean;
+  }
+) {
+  const db = getDb();
+  const result = await db
+    .insert(userIntegrations)
+    .values({ userId, provider: "imap", ...data })
+    .returning();
+  return result[0];
+}
+
+export async function updateIntegrationTokens(
+  id: number,
+  data: { accessToken?: string; refreshToken?: string; tokenExpiry?: Date }
+) {
+  const db = getDb();
+  await db
+    .update(userIntegrations)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(userIntegrations.id, id));
+}
+
+export async function deleteIntegrationById(userId: number, id: number) {
+  const db = getDb();
+  await db
+    .delete(userIntegrations)
+    .where(and(eq(userIntegrations.id, id), eq(userIntegrations.userId, userId)));
+}
+
+// Helper legacy — mantiene compat con código previo si quedara algo
+export async function getIntegrationByUser(userId: number, provider: ProviderName) {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(userIntegrations)
+    .where(and(eq(userIntegrations.userId, userId), eq(userIntegrations.provider, provider)))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+// ─── Helpers de Señales de Email ──────────────────────────────────────────────
+export async function insertEmailSignal(data: InsertEmailSignal) {
+  const db = getDb();
+  try {
+    const result = await db.insert(emailSignals).values(data).returning();
+    return result[0];
+  } catch {
+    // Duplicado silencioso (ya existe este gmailMessageId para este usuario)
+    return null;
+  }
+}
+
+export async function getEmailSignalsByUser(userId: number, status?: string) {
+  const db = getDb();
+  if (status) {
+    return db
+      .select()
+      .from(emailSignals)
+      .where(and(eq(emailSignals.userId, userId), eq(emailSignals.status, status as any)))
+      .orderBy(desc(emailSignals.receivedAt));
+  }
+  return db
+    .select()
+    .from(emailSignals)
+    .where(eq(emailSignals.userId, userId))
+    .orderBy(desc(emailSignals.receivedAt));
+}
+
+export async function getEmailSignalById(userId: number, id: number) {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(emailSignals)
+    .where(and(eq(emailSignals.id, id), eq(emailSignals.userId, userId)))
+    .limit(1);
+  return result[0] ?? null;
+}
+
+export async function updateEmailSignalStatus(
+  userId: number,
+  id: number,
+  status: "pending" | "replied" | "ignored" | "converted",
+  extra?: { draftReply?: string; taskId?: number; googleCalendarEventId?: string }
+) {
+  const db = getDb();
+  await db
+    .update(emailSignals)
+    .set({ status, ...extra, updatedAt: new Date() })
+    .where(and(eq(emailSignals.id, id), eq(emailSignals.userId, userId)));
+}
+
+export async function getPendingSignalCount(userId: number): Promise<number> {
+  const db = getDb();
+  const result = await db
+    .select()
+    .from(emailSignals)
+    .where(and(eq(emailSignals.userId, userId), eq(emailSignals.status, "pending")));
+  return result.length;
+}
+
+export async function setEmailSignalClassifierFeedback(
+  userId: number,
+  signalId: number,
+  feedback: "spot_on" | "not_important"
+) {
+  const db = getDb();
+  await db
+    .update(emailSignals)
+    .set({
+      classifierUserFeedback: feedback,
+      updatedAt: new Date(),
+      ...(feedback === "not_important" ? { status: "ignored" as const } : {}),
+    })
+    .where(and(eq(emailSignals.id, signalId), eq(emailSignals.userId, userId)));
+}
+
+/** Ejemplos recientes de aciertos/errores del filtro para enriquecer el prompt del clasificador */
+export async function getRecentClassifierFeedbackExamples(userId: number, limit = 15) {
+  const db = getDb();
+  return db
+    .select({
+      subject: emailSignals.subject,
+      fromAddress: emailSignals.fromAddress,
+      snippet: emailSignals.snippet,
+      classifierUserFeedback: emailSignals.classifierUserFeedback,
+    })
+    .from(emailSignals)
+    .where(and(eq(emailSignals.userId, userId), isNotNull(emailSignals.classifierUserFeedback)))
+    .orderBy(desc(emailSignals.updatedAt))
+    .limit(limit);
+}
+
+// Legacy compatibility exports (used in routers.ts)
+export async function upsertUser(data: any) {
+  // Not used in local version — kept for compatibility
+}
+
+export async function getUserByOpenId(openId: string) {
+  // Not used in local version — kept for compatibility
+  return null;
+}
