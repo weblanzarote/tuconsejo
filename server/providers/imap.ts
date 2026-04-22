@@ -90,12 +90,28 @@ export const imapProvider: MailProvider = {
         const { name: fromName, address: fromAddress } = parseFrom(fromRaw);
         const fullBody = (parsed.text ?? parsed.html ?? "").toString().replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
+        const joinMailparserAddresses = (field: unknown): string => {
+          if (!field) return "";
+          const objs = Array.isArray(field) ? field : [field];
+          const addrs: string[] = [];
+          for (const o of objs as Array<{ value?: Array<{ address?: string }> }>) {
+            for (const v of o?.value ?? []) {
+              if (v?.address) addrs.push(v.address);
+            }
+          }
+          return addrs.join(", ");
+        };
+        const toS = joinMailparserAddresses(parsed.to);
+        const ccS = joinMailparserAddresses(parsed.cc);
+        const toCcSummary = [toS && `Para: ${toS}`, ccS && `Cc: ${ccS}`].filter(Boolean).join(" | ").slice(0, 600);
+
         return {
           providerMessageId: String(uid),
           threadId: parsed.messageId ?? String(uid),
           subject: parsed.subject ?? "(sin asunto)",
           fromName: fromName || parsed.from?.value?.[0]?.name || "",
           fromAddress: fromAddress || parsed.from?.value?.[0]?.address || "",
+          toCcSummary: toCcSummary || undefined,
           snippet: fullBody.slice(0, 200),
           fullBody: fullBody.slice(0, 5000),
           receivedAt: parsed.date ?? new Date(),

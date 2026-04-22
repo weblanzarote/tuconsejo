@@ -62,15 +62,21 @@ export const microsoftProvider: MailProvider = {
   async fetchDetail(integration, messageId) {
     const token = await getAccessToken(integration);
     const res = await fetch(
-      `${GRAPH_BASE}/messages/${messageId}?$select=id,conversationId,subject,from,bodyPreview,body,receivedDateTime,internetMessageId`,
+      `${GRAPH_BASE}/messages/${messageId}?$select=id,conversationId,subject,from,toRecipients,ccRecipients,bodyPreview,body,receivedDateTime,internetMessageId`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) return null;
     const msg = await res.json();
 
+    const joinRecip = (arr: Array<{ emailAddress?: { address?: string } }> | undefined) =>
+      (arr ?? []).map((r) => r.emailAddress?.address).filter(Boolean).join(", ");
+
     const subject = msg.subject || "(sin asunto)";
     const fromName = msg.from?.emailAddress?.name ?? "";
     const fromAddress = msg.from?.emailAddress?.address ?? "";
+    const toPart = joinRecip(msg.toRecipients);
+    const ccPart = joinRecip(msg.ccRecipients);
+    const toCcSummary = [toPart && `Para: ${toPart}`, ccPart && `Cc: ${ccPart}`].filter(Boolean).join(" | ").slice(0, 600);
     const snippet = msg.bodyPreview ?? "";
 
     let fullBody = "";
@@ -86,6 +92,7 @@ export const microsoftProvider: MailProvider = {
       subject,
       fromName,
       fromAddress,
+      toCcSummary: toCcSummary || undefined,
       snippet,
       fullBody: fullBody.slice(0, 5000),
       receivedAt: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),

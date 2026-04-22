@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   RefreshCw,
@@ -414,6 +414,49 @@ function ImapModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => v
   );
 }
 
+// ─── Bloque colapsable: cuentas, auto-sync y preferencias (menos espacio por defecto) ─
+function CorreoConexionPanel({
+  hasAccounts,
+  accountsLoading,
+  accounts,
+  childrenAccountsAndPrefs,
+}: {
+  hasAccounts: boolean;
+  accountsLoading: boolean;
+  accounts: { id: number; provider: string; email: string; label: string | null }[];
+  childrenAccountsAndPrefs: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!hasAccounts && !accountsLoading) return null;
+
+  const summary =
+    accounts.length === 0
+      ? "Cargando…"
+      : accounts.length === 1
+        ? `${accounts[0].label ?? accounts[0].email}`
+        : `${accounts.length} cuentas`;
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer"
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <Settings className="h-4 w-4 flex-shrink-0" />
+          <span className="truncate text-left">
+            Conexión y preferencias
+            <span className="text-muted-foreground/70 font-normal"> · {summary}</span>
+          </span>
+        </span>
+        {open ? <ChevronUp className="h-4 w-4 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 flex-shrink-0" />}
+      </button>
+      {open && <div className="px-4 pb-4 pt-1 space-y-4 border-t border-border">{childrenAccountsAndPrefs}</div>}
+    </div>
+  );
+}
+
 // ─── Sección de preferencias ──────────────────────────────────────────────────
 function PreferenciasSection() {
   const [open, setOpen] = useState(false);
@@ -438,8 +481,8 @@ function PreferenciasSection() {
       {open && (
         <div className="px-4 pb-4 space-y-3 border-t border-border">
           <p className="text-xs text-muted-foreground pt-3">
-            Describe qué tipo de correos quieres ver y cuáles ignorar. La IA usará esto al filtrar tu bandeja. Además, cuando marques{" "}
-            <strong className="text-foreground/90">Sí, importante</strong> o <strong className="text-foreground/90">No era tan importante</strong> en un correo, el sistema aprende de eso en las próximas sincronizaciones.
+            Describe qué correos quieres ver y cuáles ignorar. La IA ve la dirección exacta del remitente (p. ej. noreply@…) y los destinatarios Para/Cc. Si pides ignorar un correo concreto, incluye su dirección completa. Al marcar{" "}
+            <strong className="text-foreground/90">Sí, importante</strong> o <strong className="text-foreground/90">No era tan importante</strong>, el sistema aprende en las próximas sincronizaciones.
           </p>
           <textarea
             value={localPrefs}
@@ -539,7 +582,7 @@ function AccountPrefsSection({ integrationId, label }: { integrationId: number; 
       {open && (
         <div className="px-3 pb-3 space-y-2 border-t border-border/60">
           <p className="text-xs text-muted-foreground pt-2">
-            Reglas específicas para esta cuenta. Si queda vacío, se usan las preferencias globales.
+            Se añaden a las preferencias globales (no las sustituyen). Déjalo vacío si solo quieres las globales.
           </p>
           <textarea
             value={localPrefs}
@@ -661,35 +704,44 @@ export default function CorreosPage() {
         </div>
       </div>
 
-      {/* Auto-sync toggle */}
-      {hasAccounts && <AutoSyncToggle />}
-
-      {/* Cuentas conectadas */}
-      {!accountsLoading && accounts.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Cuentas conectadas</p>
-          {accounts.map((acc) => (
-            <div key={acc.id} className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-muted-foreground px-3 py-2 rounded-lg border border-border">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[10px] uppercase font-medium bg-muted px-1.5 py-0.5 rounded text-foreground/60 flex-shrink-0">
-                    {PROVIDER_LABELS[acc.provider] ?? acc.provider}
-                  </span>
-                  <span className="truncate">{acc.label ? `${acc.label} — ${acc.email}` : acc.email}</span>
-                </div>
-                <button
-                  onClick={() => { if (confirm("¿Desconectar esta cuenta?")) removeMutation.mutate({ id: acc.id }); }}
-                  className="flex-shrink-0 ml-2 p-1 text-muted-foreground/40 hover:text-destructive transition-colors cursor-pointer"
-                  title="Desconectar"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+      <CorreoConexionPanel
+        hasAccounts={hasAccounts}
+        accountsLoading={accountsLoading}
+        accounts={accounts}
+        childrenAccountsAndPrefs={
+          <>
+            <AutoSyncToggle />
+            {!accountsLoading && accounts.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Cuentas conectadas</p>
+                {accounts.map((acc) => (
+                  <div key={acc.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground px-3 py-2 rounded-lg border border-border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[10px] uppercase font-medium bg-muted px-1.5 py-0.5 rounded text-foreground/60 flex-shrink-0">
+                          {PROVIDER_LABELS[acc.provider] ?? acc.provider}
+                        </span>
+                        <span className="truncate">{acc.label ? `${acc.label} — ${acc.email}` : acc.email}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (confirm("¿Desconectar esta cuenta?")) removeMutation.mutate({ id: acc.id });
+                        }}
+                        className="flex-shrink-0 ml-2 p-1 text-muted-foreground/40 hover:text-destructive transition-colors cursor-pointer"
+                        title="Desconectar"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <AccountPrefsSection integrationId={acc.id} label={acc.label ?? acc.email} />
+                  </div>
+                ))}
               </div>
-              <AccountPrefsSection integrationId={acc.id} label={acc.label ?? acc.email} />
-            </div>
-          ))}
-        </div>
-      )}
+            )}
+            <PreferenciasSection />
+          </>
+        }
+      />
 
       {/* Sin cuentas */}
       {!accountsLoading && !hasAccounts && (
@@ -714,9 +766,6 @@ export default function CorreosPage() {
           </div>
         </div>
       )}
-
-      {/* Preferencias de filtrado */}
-      {hasAccounts && <PreferenciasSection />}
 
       {/* Tabs Pendientes / Archivados */}
       {hasAccounts && (

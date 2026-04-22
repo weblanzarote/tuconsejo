@@ -5,6 +5,7 @@ import {
   getRecentClassifierFeedbackExamples,
   insertEmailSignal,
 } from "./db";
+import { extractIgnoredSenderEmails, mergeEmailFilterPrefs } from "./emailFilterPrefs";
 import { getProvider } from "./providers";
 
 export interface SyncResult {
@@ -53,14 +54,19 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
       if (!validDetails.length) continue;
       totalSynced += validDetails.length;
 
+      const mergedPrefs = mergeEmailFilterPrefs(userEmailPrefs, integration.emailFilterPrefs);
+      const hardIgnoredSenders = new Set(extractIgnoredSenderEmails(mergedPrefs));
+
       const emailList = validDetails.map((d) => ({
         id: d.providerMessageId,
         subject: d.subject,
-        from: d.fromName || d.fromAddress,
+        fromEmail: d.fromAddress,
+        fromDisplay: d.fromName || d.fromAddress,
+        toCc: d.toCcSummary ?? "",
         snippet: d.snippet.slice(0, 200),
       }));
 
-      const accountPrefs = integration.emailFilterPrefs?.trim() || userEmailPrefs || "";
+      const accountPrefs = mergedPrefs;
       const accountLabel = integration.label ? `${integration.label} — ${integration.connectedEmail}` : integration.connectedEmail;
 
       let importantIds: string[] = [];
@@ -70,12 +76,24 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
             {
               role: "system",
               content:
-                `Eres un filtro inteligente de emails personales. Analiza la lista de correos de la cuenta "${accountLabel}" y devuelve SOLO los IDs de los que son importantes o requieren acción real del usuario. Ignora newsletters, notificaciones automáticas, marketing, confirmaciones de compra rutinarias y spam.${accountPrefs ? ` Preferencias del usuario para esta cuenta: ${accountPrefs}` : ""}${classifierLearningBlock} Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
+                `Eres un filtro inteligente de emails personales. Analiza la lista de correos de la cuenta "${accountLabel}" (bandeja de ${integration.connectedEmail}) y devuelve SOLO los IDs que son importantes o requieren acción real del usuario.
+
+Cada correo incluye fromEmail (dirección exacta del remitente), fromDisplay (nombre opcional), toCc (destinatarios Para/Cc si existen) y snippet.
+
+Reglas:
+- Las preferencias del usuario tienen PRIORIDAD ABSOLUTA sobre tu criterio por defecto. Si piden ignorar un remitente concreto (coincidencia por fromEmail, sin distinguir mayúsculas), NUNCA incluyas ese ID en "important", aunque el asunto parezca urgente o sea un formulario/oferta.
+- Si el usuario pide ignorar hilos que no van dirigidos a él sino a un docente u otra persona, usa toCc y el cuerpo/snippet: si los destinatarios principales no incluyen la cuenta del usuario y el tono es respuesta de alumno a profesor, NO es importante.
+- Si el usuario indica que su nombre (p. ej. Fernando o Fer) marca importancia, prioriza esos mensajes salvo que otra regla explícita diga lo contrario.
+- Por defecto ignora newsletters, notificaciones automáticas, marketing, confirmaciones rutinarias y spam.
+
+${accountPrefs ? `Preferencias del usuario (globales + esta cuenta):\n${accountPrefs}` : ""}${classifierLearningBlock}
+
+Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
             },
             { role: "user", content: JSON.stringify(emailList) },
           ],
           responseFormat: { type: "json_object" },
-          maxTokens: 300,
+          maxTokens: 400,
         });
         const rawFilter = filterResponse.choices[0]?.message?.content;
         const raw = typeof rawFilter === "string" ? rawFilter : "{}";
@@ -86,6 +104,7 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
       }
 
       for (const detail of validDetails) {
+        if (hardIgnoredSenders.has(detail.fromAddress.trim().toLowerCase())) continue;
         if (!importantIds.includes(detail.providerMessageId)) continue;
         const inserted = await insertEmailSignal({
           userId,

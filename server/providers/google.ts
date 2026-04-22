@@ -106,6 +106,9 @@ export const googleProvider: MailProvider = {
     const subject = getHeader("subject") || "(sin asunto)";
     const fromRaw = getHeader("from");
     const dateStr = getHeader("date");
+    const toRaw = getHeader("to");
+    const ccRaw = getHeader("cc");
+    const toCcSummary = [toRaw && `Para: ${toRaw}`, ccRaw && `Cc: ${ccRaw}`].filter(Boolean).join(" | ").slice(0, 600);
     const { name: fromName, address: fromAddress } = parseFrom(fromRaw);
     return {
       providerMessageId: messageId,
@@ -113,6 +116,7 @@ export const googleProvider: MailProvider = {
       subject,
       fromName,
       fromAddress,
+      toCcSummary: toCcSummary || undefined,
       snippet: msg.snippet ?? "",
       fullBody: extractTextParts(msg.payload).slice(0, 5000),
       receivedAt: dateStr ? new Date(dateStr) : new Date(),

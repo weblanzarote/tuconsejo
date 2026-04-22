@@ -15,6 +15,8 @@ export interface MessageDetail {
   subject: string;
   fromName: string;
   fromAddress: string;
+  /** To/Cc resumidos para saber si el correo iba realmente dirigido al usuario */
+  toCcSummary?: string;
   snippet: string;
   fullBody: string;
   receivedAt: Date;
