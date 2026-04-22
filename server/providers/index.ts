@@ -2,10 +2,11 @@
  * Dispatcher: dada una integración, devuelve su proveedor correspondiente.
  */
 import type { UserIntegration } from "../../drizzle/schema";
-import { googleProvider, createGoogleCalendarEvent } from "./google";
-import { microsoftProvider, createMicrosoftCalendarEvent } from "./microsoft";
+import { googleProvider, createGoogleCalendarEvent, listGoogleUpcomingEvents } from "./google";
+import { microsoftProvider, createMicrosoftCalendarEvent, listMicrosoftUpcomingEvents } from "./microsoft";
 import { imapProvider } from "./imap";
 import type { MailProvider } from "./types";
+import type { CalendarEventItem } from "./google";
 
 export function getProvider(integration: UserIntegration): MailProvider {
   switch (integration.provider) {
@@ -34,5 +35,22 @@ export async function createCalendarEventForIntegration(
   throw new Error("CALENDAR_NOT_SUPPORTED_FOR_PROVIDER");
 }
 
+/** Lista eventos próximos para una integración. Solo Google/Microsoft soportan calendario. */
+export async function listUpcomingEventsForIntegration(
+  integration: UserIntegration,
+  fromIso: string,
+  toIso: string,
+  maxResults = 20
+): Promise<CalendarEventItem[]> {
+  if (integration.provider === "google") {
+    return listGoogleUpcomingEvents(integration, fromIso, toIso, maxResults);
+  }
+  if (integration.provider === "microsoft") {
+    return listMicrosoftUpcomingEvents(integration, fromIso, toIso, maxResults);
+  }
+  return [];
+}
+
 export { googleProvider, microsoftProvider, imapProvider };
 export type { MailProvider } from "./types";
+export type { CalendarEventItem } from "./google";

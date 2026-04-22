@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sin conexión — Consejo Sinérgico</title>
+    <meta name="theme-color" content="#0A0A0F" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0a0a0f;
+        color: #e7e7ea;
+        font-family: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+      }
+      .wrap {
+        min-height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+      }
+      .card {
+        max-width: 420px;
+        text-align: center;
+      }
+      h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+        letter-spacing: -0.01em;
+      }
+      p {
+        color: #a1a1a6;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        margin: 0 0 1.5rem;
+      }
+      button {
+        background: #ffffff;
+        color: #0a0a0f;
+        border: 0;
+        padding: 0.6rem 1.2rem;
+        border-radius: 999px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      button:hover {
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Sin conexión</h1>
+        <p>
+          No se puede acceder a tu Consejo Sinérgico ahora mismo. Comprueba tu conexión y vuelve a intentarlo.
+        </p>
+        <button onclick="location.reload()">Reintentar</button>
+      </div>
+    </div>
+  </body>
+</html>

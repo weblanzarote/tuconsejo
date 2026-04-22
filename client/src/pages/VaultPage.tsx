@@ -16,6 +16,7 @@ import {
   X,
   Sparkles,
   Download,
+  Upload,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
@@ -361,6 +362,110 @@ export default function VaultPage() {
       </div>
 
       <AppSection />
+      <DataPortabilitySection />
+    </div>
+  );
+}
+
+function DataPortabilitySection() {
+  const utils = trpc.useUtils();
+  const exportQuery = trpc.userData.export.useQuery(undefined, { enabled: false });
+  const importMut = trpc.userData.import.useMutation({
+    onSuccess: () => {
+      toast.success("Datos restaurados. Recarga la página para verlos.");
+      utils.invalidate();
+    },
+    onError: (err) => toast.error(`Error al importar: ${err.message}`),
+  });
+  const [importing, setImporting] = useState(false);
+
+  const handleExport = async () => {
+    const res = await exportQuery.refetch();
+    if (!res.data) {
+      toast.error("No se pudo exportar");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `consejo-export-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Exportado");
+  };
+
+  const handleImport = (file: File) => {
+    const ok = confirm(
+      "Esto reemplazará tu bóveda, notas, tareas, diario y memoria actuales con los datos del archivo. ¿Continuar?"
+    );
+    if (!ok) return;
+    setImporting(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const payload = JSON.parse(String(reader.result));
+        importMut.mutate({ payload, confirm: true });
+      } catch {
+        toast.error("Archivo inválido (no es JSON)");
+      } finally {
+        setImporting(false);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">Exportar / Importar datos</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Descarga una copia completa de tu bóveda, notas, tareas, diario y memoria, o restaura desde un archivo anterior.
+        </p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleExport}
+          disabled={exportQuery.isFetching}
+          className="gap-2 text-xs"
+        >
+          {exportQuery.isFetching ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          Exportar a JSON
+        </Button>
+        <label
+          className={cn(
+            "inline-flex items-center gap-2 text-xs px-3 h-8 rounded-md border border-border cursor-pointer hover:bg-muted transition-colors",
+            (importMut.isPending || importing) && "opacity-60 cursor-wait"
+          )}
+        >
+          {importMut.isPending || importing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Upload className="h-3.5 w-3.5" />
+          )}
+          Importar desde JSON
+          <input
+            type="file"
+            accept="application/json"
+            className="hidden"
+            disabled={importMut.isPending || importing}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleImport(f);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
     </div>
   );
 }

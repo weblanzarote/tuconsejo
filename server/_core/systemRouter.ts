@@ -2,6 +2,7 @@ import { z } from "zod";
 import { notifyOwner } from "./notification";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./trpc";
 import { ENV } from "./env";
+import { checkIntegrity } from "../backup";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -82,6 +83,8 @@ export const systemRouter = router({
         success: delivered,
       } as const;
     }),
+
+  dbIntegrity: adminProcedure.query(() => checkIntegrity()),
 
   generateAppIcon: protectedProcedure.mutation(async () => {
     const hasForge = ENV.forgeApiUrl && ENV.forgeApiKey;

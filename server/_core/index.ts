@@ -15,6 +15,7 @@ import { registerMicrosoftOAuthRoutes } from "../microsoft-oauth";
 import { initializeDatabase } from "../db";
 import { appRouter } from "../routers";
 import { startAutoSyncScheduler } from "../autoSync";
+import { startBackupScheduler } from "../backup";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -51,6 +52,8 @@ async function startServer() {
   initializeDatabase();
   // Scheduler de sincronización automática de correos
   startAutoSyncScheduler();
+  // Scheduler de backups diarios de la BD
+  startBackupScheduler();
   // Rutas de autenticación local
   registerLocalAuthRoutes(app);
   // Rutas de Google OAuth (Gmail + Calendar)

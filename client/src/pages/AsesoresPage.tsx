@@ -86,6 +86,7 @@ export default function AsesoresPage() {
   const [sessionHistory, setSessionHistory] = useState<SessionMessage[]>([]);
   const [expandedResponses, setExpandedResponses] = useState<Set<string>>(new Set());
   const [isSending, setIsSending] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const predictTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -213,7 +214,13 @@ export default function AsesoresPage() {
     <div className={cn("space-y-3", !isEmpty && "py-4 border-t border-border")}>
       {/* Vista previa de asesores seleccionados */}
       {(selectedAgents.length > 0 || predictedAgents.length > 0) && input.length >= 10 && (
-        <div className="flex items-center gap-2 flex-wrap animate-fade-in">
+        <div
+          className={cn(
+            "flex items-center gap-2 flex-wrap animate-fade-in",
+            inputFocused &&
+              "max-lg:fixed max-lg:top-0 max-lg:inset-x-0 max-lg:z-40 max-lg:bg-background/95 max-lg:backdrop-blur max-lg:px-4 max-lg:py-2 max-lg:border-b max-lg:border-border max-lg:shadow-sm"
+          )}
+        >
           <span className="text-xs text-muted-foreground">Responderán:</span>
           {selectedAgents.map((id) => {
             return (
@@ -254,6 +261,8 @@ export default function AsesoresPage() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setTimeout(() => setInputFocused(false), 150)}
           placeholder="Escribe tu pregunta... (Enter para enviar, Shift+Enter para salto de línea)"
           disabled={isSending}
           className="flex-1 text-sm bg-muted border border-border rounded-lg px-3 py-2.5 resize-none min-h-[44px] max-h-[200px] focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/50 disabled:opacity-60"

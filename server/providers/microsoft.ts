@@ -116,6 +116,44 @@ export const microsoftProvider: MailProvider = {
   },
 };
 
+import type { CalendarEventItem } from "./google";
+
+// Lista eventos próximos de Outlook Calendar
+export async function listMicrosoftUpcomingEvents(
+  integration: UserIntegration,
+  fromIso: string,
+  toIso: string,
+  maxResults = 20
+): Promise<CalendarEventItem[]> {
+  const token = await getAccessToken(integration);
+  const params = new URLSearchParams({
+    startDateTime: fromIso,
+    endDateTime: toIso,
+    $top: String(maxResults),
+    $orderby: "start/dateTime",
+    $select: "id,subject,start,end,isAllDay,location,webLink",
+  });
+  const res = await fetch(`${GRAPH_BASE}/calendarView?${params}`, {
+    headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="UTC"' },
+  });
+  if (!res.ok) throw new Error(`[MS Calendar] list: ${res.status}`);
+  const data = await res.json();
+  const items: any[] = data.value ?? [];
+  return items.map((ev) => {
+    const startStr = ev.start?.dateTime ? `${ev.start.dateTime}Z` : "";
+    const endStr = ev.end?.dateTime ? `${ev.end.dateTime}Z` : startStr;
+    return {
+      id: ev.id,
+      title: ev.subject ?? "(sin título)",
+      start: startStr,
+      end: endStr,
+      allDay: !!ev.isAllDay,
+      location: ev.location?.displayName || undefined,
+      htmlLink: ev.webLink || undefined,
+    };
+  });
+}
+
 // Crear evento en Outlook Calendar
 export async function createMicrosoftCalendarEvent(
   integration: UserIntegration,

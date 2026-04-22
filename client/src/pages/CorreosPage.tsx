@@ -465,6 +465,49 @@ function PreferenciasSection() {
   );
 }
 
+// ─── Toggle auto-sync global del usuario ─────────────────────────────────────
+function AutoSyncToggle() {
+  const utils = trpc.useUtils();
+  const { data } = trpc.signals.getAutoSync.useQuery();
+  const setAutoSync = trpc.signals.setAutoSync.useMutation({
+    onSuccess: () => {
+      utils.signals.getAutoSync.invalidate();
+      toast.success("Preferencia guardada");
+    },
+    onError: () => toast.error("No se pudo actualizar"),
+  });
+  const enabled = data?.enabled ?? true;
+
+  return (
+    <div className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-border/60 text-xs">
+      <div className="min-w-0 pr-3">
+        <p className="text-foreground">Sincronización automática</p>
+        <p className="text-muted-foreground mt-0.5">
+          Revisa tus cuentas cada 15 min y trae correos importantes nuevos.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => setAutoSync.mutate({ enabled: !enabled })}
+        disabled={setAutoSync.isPending}
+        className={cn(
+          "relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors cursor-pointer",
+          enabled ? "bg-foreground" : "bg-muted",
+          setAutoSync.isPending && "opacity-60 cursor-not-allowed"
+        )}
+        aria-pressed={enabled}
+      >
+        <span
+          className={cn(
+            "inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform",
+            enabled ? "translate-x-[18px]" : "translate-x-1"
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
 // ─── Preferencias de una cuenta concreta ──────────────────────────────────────
 function AccountPrefsSection({ integrationId, label }: { integrationId: number; label: string }) {
   const [open, setOpen] = useState(false);
@@ -617,6 +660,9 @@ export default function CorreosPage() {
           </div>
         </div>
       </div>
+
+      {/* Auto-sync toggle */}
+      {hasAccounts && <AutoSyncToggle />}
 
       {/* Cuentas conectadas */}
       {!accountsLoading && accounts.length > 0 && (

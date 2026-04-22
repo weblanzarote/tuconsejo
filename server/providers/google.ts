@@ -154,6 +154,54 @@ export const googleProvider: MailProvider = {
   },
 };
 
+export interface CalendarEventItem {
+  id: string;
+  title: string;
+  start: string; // ISO
+  end: string; // ISO
+  allDay: boolean;
+  location?: string;
+  htmlLink?: string;
+}
+
+// Lista eventos próximos en el calendario primario
+export async function listGoogleUpcomingEvents(
+  integration: UserIntegration,
+  fromIso: string,
+  toIso: string,
+  maxResults = 20
+): Promise<CalendarEventItem[]> {
+  const token = await getAccessToken(integration);
+  const params = new URLSearchParams({
+    timeMin: fromIso,
+    timeMax: toIso,
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: String(maxResults),
+  });
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`[Calendar] list: ${res.status}`);
+  const data = await res.json();
+  const items: any[] = data.items ?? [];
+  return items.map((ev) => {
+    const allDay = !!ev.start?.date;
+    const startStr: string = ev.start?.dateTime ?? ev.start?.date ?? "";
+    const endStr: string = ev.end?.dateTime ?? ev.end?.date ?? startStr;
+    return {
+      id: ev.id,
+      title: ev.summary ?? "(sin título)",
+      start: startStr,
+      end: endStr,
+      allDay,
+      location: ev.location ?? undefined,
+      htmlLink: ev.htmlLink ?? undefined,
+    };
+  });
+}
+
 // Crear evento de Google Calendar (solo Google)
 export async function createGoogleCalendarEvent(
   integration: UserIntegration,

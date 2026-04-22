@@ -492,6 +492,26 @@ export async function getMemoryByAgent(userId: number, agentId: string, limit = 
     .limit(limit);
 }
 
+/** Recupera las memorias más importantes/recientes de todos los demás asesores (para memoria cruzada del Guardián). */
+export async function getCrossAgentMemories(userId: number, excludeAgentId: string, limit = 12) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(memoryEntries)
+    .where(eq(memoryEntries.userId, userId))
+    .orderBy(desc(memoryEntries.createdAt))
+    .limit(100);
+  return rows
+    .filter((r) => r.agentId !== excludeAgentId)
+    .sort((a, b) => {
+      const w = { alta: 3, media: 2, baja: 1 } as const;
+      const diff = (w[b.importance] ?? 0) - (w[a.importance] ?? 0);
+      if (diff !== 0) return diff;
+      return b.createdAt.getTime() - a.createdAt.getTime();
+    })
+    .slice(0, limit);
+}
+
 export async function insertMemoryEntry(data: InsertMemoryEntry) {
   const db = getDb();
   await db.insert(memoryEntries).values(data);
@@ -620,6 +640,136 @@ export async function searchNotes(userId: number, query: string) {
       )
     )
     .orderBy(desc(notes.updatedAt));
+}
+
+// ─── Export / Import completo ────────────────────────────────────────────────
+export async function exportUserData(userId: number) {
+  const db = getDb();
+  const [vaultRow, noteRows, actionRows, diaryRows, memoryRows] = await Promise.all([
+    db.select().from(vault).where(eq(vault.userId, userId)).limit(1),
+    db.select().from(notes).where(eq(notes.userId, userId)),
+    db.select().from(actionItems).where(eq(actionItems.userId, userId)),
+    db.select().from(diaryEntries).where(eq(diaryEntries.userId, userId)),
+    db.select().from(memoryEntries).where(eq(memoryEntries.userId, userId)),
+  ]);
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    vault: vaultRow[0] ?? null,
+    notes: noteRows,
+    actionItems: actionRows,
+    diaryEntries: diaryRows,
+    memoryEntries: memoryRows,
+  };
+}
+
+export async function replaceUserData(
+  userId: number,
+  data: {
+    vault?: any;
+    notes?: any[];
+    actionItems?: any[];
+    diaryEntries?: any[];
+    memoryEntries?: any[];
+  }
+) {
+  const db = getDb();
+  // Borrado previo del usuario en tablas soportadas
+  await Promise.all([
+    db.delete(notes).where(eq(notes.userId, userId)),
+    db.delete(actionItems).where(eq(actionItems.userId, userId)),
+    db.delete(diaryEntries).where(eq(diaryEntries.userId, userId)),
+    db.delete(memoryEntries).where(eq(memoryEntries.userId, userId)),
+  ]);
+
+  const strip = <T extends Record<string, any>>(row: T) => {
+    const { id: _id, userId: _u, ...rest } = row as any;
+    return { ...rest, userId };
+  };
+
+  if (data.vault) {
+    await upsertVault(userId, {
+      financialStatus: data.vault.financialStatus ?? null,
+      careerData: data.vault.careerData ?? null,
+      healthMetrics: data.vault.healthMetrics ?? null,
+      relationshipStatus: data.vault.relationshipStatus ?? null,
+      familyCircle: data.vault.familyCircle ?? null,
+      valuesFramework: data.vault.valuesFramework ?? null,
+      personalInfo: data.vault.personalInfo ?? null,
+    });
+  }
+  if (Array.isArray(data.notes) && data.notes.length) {
+    await db.insert(notes).values(data.notes.map(strip));
+  }
+  if (Array.isArray(data.actionItems) && data.actionItems.length) {
+    await db.insert(actionItems).values(
+      data.actionItems.map((r) => {
+        const s = strip(r);
+        if (s.deadline && typeof s.deadline === "string") s.deadline = new Date(s.deadline);
+        if (s.completedAt && typeof s.completedAt === "string") s.completedAt = new Date(s.completedAt);
+        return s;
+      })
+    );
+  }
+  if (Array.isArray(data.diaryEntries) && data.diaryEntries.length) {
+    await db.insert(diaryEntries).values(data.diaryEntries.map(strip));
+  }
+  if (Array.isArray(data.memoryEntries) && data.memoryEntries.length) {
+    await db.insert(memoryEntries).values(data.memoryEntries.map(strip));
+  }
+}
+
+export async function searchActionItems(userId: number, query: string, limit = 20) {
+  const db = getDb();
+  const q = `%${query}%`;
+  return db
+    .select()
+    .from(actionItems)
+    .where(
+      and(
+        eq(actionItems.userId, userId),
+        or(like(actionItems.title, q), like(actionItems.description, q))
+      )
+    )
+    .orderBy(desc(actionItems.updatedAt))
+    .limit(limit);
+}
+
+export async function searchEmailSignals(userId: number, query: string, limit = 20) {
+  const db = getDb();
+  const q = `%${query}%`;
+  return db
+    .select()
+    .from(emailSignals)
+    .where(
+      and(
+        eq(emailSignals.userId, userId),
+        or(
+          like(emailSignals.subject, q),
+          like(emailSignals.fromName, q),
+          like(emailSignals.fromAddress, q),
+          like(emailSignals.snippet, q)
+        )
+      )
+    )
+    .orderBy(desc(emailSignals.receivedAt))
+    .limit(limit);
+}
+
+export async function searchConversations(userId: number, query: string, limit = 20) {
+  const db = getDb();
+  const q = `%${query}%`;
+  return db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.userId, userId),
+        or(like(conversations.title, q), like(conversations.summary, q))
+      )
+    )
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit);
 }
 
 // ─── Helpers de Integraciones (multi-cuenta) ──────────────────────────────────

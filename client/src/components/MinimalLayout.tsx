@@ -16,6 +16,7 @@ import { useState } from "react";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 import { Link, useLocation } from "wouter";
 import { Button } from "./ui/button";
+import CommandPalette from "./CommandPalette";
 
 const NAV_ITEMS = [
   { href: "/hoy", label: "Hoy", icon: BookOpen },
@@ -45,6 +46,7 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
 
   return (
     <div className="flex h-screen bg-transparent overflow-hidden text-foreground">
+      <CommandPalette />
       {/* ── Overlay móvil ── */}
       {mobileOpen && (
         <div

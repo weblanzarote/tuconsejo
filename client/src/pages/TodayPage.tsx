@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Circle,
   X,
+  CalendarDays,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -114,6 +115,70 @@ function SimpleMarkdown({ text }: { text: string }) {
         if (line.trim() === "") return <div key={i} className="h-2" />;
         return <p key={i}>{line}</p>;
       })}
+    </div>
+  );
+}
+
+function AgendaWidget({ timeZone }: { timeZone: string }) {
+  const { data, isLoading } = trpc.calendar.listUpcoming.useQuery(
+    { hoursAhead: 48 },
+    { refetchOnWindowFocus: false, staleTime: 60_000 }
+  );
+
+  if (isLoading) {
+    return <div className="h-20 rounded-xl border border-border/40 bg-muted/20 animate-pulse" aria-hidden />;
+  }
+  if (!data || !data.accounts.length) return null;
+  const events = data.events.slice(0, 5);
+  if (!events.length) return null;
+
+  const fmtTime = (iso: string, allDay: boolean) => {
+    if (!iso) return "";
+    if (allDay) return "Todo el día";
+    try {
+      return new Intl.DateTimeFormat("es-ES", {
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: timeZone || undefined,
+      }).format(new Date(iso));
+    } catch {
+      return new Date(iso).toLocaleString("es-ES");
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">Próximos eventos</p>
+      </div>
+      <div className="space-y-2">
+        {events.map((ev: any) => (
+          <div key={`${ev.integrationId}:${ev.id}`} className="flex items-start gap-3 text-sm">
+            <span className="text-xs text-muted-foreground w-28 flex-shrink-0 pt-0.5">
+              {fmtTime(ev.start, ev.allDay)}
+            </span>
+            <div className="flex-1 min-w-0">
+              {ev.htmlLink ? (
+                <a
+                  href={ev.htmlLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-foreground truncate block hover:underline"
+                >
+                  {ev.title}
+                </a>
+              ) : (
+                <span className="text-foreground truncate block">{ev.title}</span>
+              )}
+              {ev.location && (
+                <span className="text-xs text-muted-foreground truncate block">{ev.location}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -451,6 +516,9 @@ export default function TodayPage() {
           <p className="text-sm text-foreground/80 leading-relaxed">{pulseData.summary}</p>
         </div>
       )}
+
+      {/* ── Agenda (próximos eventos de Google/Microsoft Calendar) ── */}
+      <AgendaWidget timeZone={tz} />
 
       {/* ── Tu foco ── */}
       {focusTasks.length > 0 && (

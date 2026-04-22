@@ -9,6 +9,7 @@ import {
   getActionItemsByUser,
   getConversationsByUser,
   getMemoryByAgent,
+  getCrossAgentMemories,
   getMessagesByConversation,
   getOrCreateConversation,
   getVaultByUserId,
@@ -44,11 +45,18 @@ import {
   getEmailFilterPrefs,
   setEmailFilterPrefs,
   setIntegrationFilterPrefs,
+  setUserAutoSync,
+  getUserById,
+  searchActionItems,
+  searchEmailSignals,
+  searchConversations,
+  exportUserData,
+  replaceUserData,
   updateActionItemTipo,
   setEmailSignalClassifierFeedback,
   getRecentClassifierFeedbackExamples,
 } from "./db";
-import { getProvider, createCalendarEventForIntegration } from "./providers";
+import { getProvider, createCalendarEventForIntegration, listUpcomingEventsForIntegration } from "./providers";
 import { syncUserEmails } from "./emailSync";
 import { testImapConnection } from "./providers/imap";
 import { encrypt } from "./crypto-utils";
@@ -235,6 +243,20 @@ const chatRouter = router({
           role: "system",
           content: `MEMORIA CONTEXTUAL:\n${memoryContext}`,
         });
+      }
+
+      // Memoria cruzada: el Guardián ve resúmenes de los demás asesores
+      if (agentId === "guardian") {
+        const cross = await getCrossAgentMemories(userId, agentId, 12);
+        if (cross.length > 0) {
+          const block = cross
+            .map((m) => `[${m.agentId.toUpperCase()} · ${m.importance}] ${m.content}`)
+            .join("\n");
+          llmMessages.push({
+            role: "system",
+            content: `MEMORIA CRUZADA DE OTROS ASESORES (úsala para señalar tensiones con los valores del usuario, no para invadir sus áreas):\n${block}`,
+          });
+        }
       }
 
       // Agregar historial reciente (excluyendo el mensaje que acabamos de insertar)
@@ -895,6 +917,20 @@ const signalsRouter = router({
       return { success: true };
     }),
 
+  // Estado del auto-sync global del usuario
+  getAutoSync: protectedProcedure.query(async ({ ctx }) => {
+    const u = await getUserById(ctx.user.id);
+    return { enabled: u?.autoSyncEnabled ?? true };
+  }),
+
+  // Activar / desactivar auto-sync para este usuario
+  setAutoSync: protectedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await setUserAutoSync(ctx.user.id, input.enabled);
+      return { success: true };
+    }),
+
   // Archivar señal (correo guardado para consulta, sin notificación)
   archive: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -1091,9 +1127,14 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
       ),
     ]);
 
-    const activeItems = allItems
-      .filter((i) => i.status === "pendiente" || i.status === "en_progreso")
-      .slice(0, 5);
+    const now = Date.now();
+    const activeItems = allItems.filter(
+      (i) => i.status === "pendiente" || i.status === "en_progreso"
+    );
+    const overdueItems = activeItems.filter(
+      (i) => i.deadline && i.deadline.getTime() < now
+    );
+    const topActive = activeItems.slice(0, 5);
 
     // Si no hay datos relevantes, no generar resumen
     if (!pendingCount && !activeItems.length && !todayEntry?.mood) {
@@ -1101,14 +1142,22 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
     }
 
     const contextLines: string[] = [];
+    if (overdueItems.length > 0) {
+      contextLines.push(
+        `- ${overdueItems.length} tarea${overdueItems.length > 1 ? "s" : ""} vencida${overdueItems.length > 1 ? "s" : ""}: ${overdueItems
+          .slice(0, 3)
+          .map((i) => i.title)
+          .join("; ")}.`
+      );
+    }
     if (pendingCount > 0) {
       contextLines.push(`- Tienes ${pendingCount} email${pendingCount > 1 ? "s" : ""} pendiente${pendingCount > 1 ? "s" : ""} de revisar.`);
       if (topSignals.length > 0) {
         contextLines.push(`  Los más recientes: ${topSignals.map((s) => `"${s.subject}" de ${s.fromName}`).join("; ")}.`);
       }
     }
-    if (activeItems.length > 0) {
-      contextLines.push(`- Tareas activas: ${activeItems.map((i) => i.title).join("; ")}.`);
+    if (topActive.length > 0) {
+      contextLines.push(`- Tareas activas: ${topActive.map((i) => i.title).join("; ")}.`);
     }
     if (todayEntry?.mood) {
       const moodText = { bien: "positivo", regular: "neutro", mal: "bajo" }[todayEntry.mood] ?? todayEntry.mood;
@@ -1136,6 +1185,157 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
   }),
 });
 
+// ─── User Data Router (export / import) ──────────────────────────────────────
+const userDataRouter = router({
+  export: protectedProcedure.query(async ({ ctx }) => {
+    return exportUserData(ctx.user.id);
+  }),
+  import: protectedProcedure
+    .input(
+      z.object({
+        payload: z.any(),
+        confirm: z.literal(true),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const p = input.payload;
+      if (!p || typeof p !== "object") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Payload inválido" });
+      }
+      if (typeof p.version !== "number" || p.version < 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Versión de export desconocida" });
+      }
+      await replaceUserData(ctx.user.id, {
+        vault: p.vault,
+        notes: p.notes,
+        actionItems: p.actionItems,
+        diaryEntries: p.diaryEntries,
+        memoryEntries: p.memoryEntries,
+      });
+      return { success: true };
+    }),
+});
+
+// ─── Search Router (Cmd+K unificado) ─────────────────────────────────────────
+const searchRouter = router({
+  all: protectedProcedure
+    .input(z.object({ query: z.string().min(1).max(200) }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+      const q = input.query.trim();
+      if (!q) return { notes: [], tasks: [], conversations: [], signals: [], diary: [] };
+
+      const [noteRes, taskRes, convRes, signalRes, diaryRes] = await Promise.all([
+        searchNotes(userId, q),
+        searchActionItems(userId, q, 10),
+        searchConversations(userId, q, 10),
+        searchEmailSignals(userId, q, 10),
+        searchDiaryEntries(userId, q, 10),
+      ]);
+
+      return {
+        notes: noteRes.slice(0, 10).map((n) => ({
+          id: n.id,
+          title: n.title,
+          snippet: (n.content ?? "").slice(0, 140),
+          tag: n.tag,
+        })),
+        tasks: taskRes.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          agentId: t.agentId,
+        })),
+        conversations: convRes.map((c) => ({
+          id: c.id,
+          title: c.title ?? "Sin título",
+          agentId: c.agentId,
+        })),
+        signals: signalRes.map((s) => ({
+          id: s.id,
+          subject: s.subject,
+          fromName: s.fromName,
+          status: s.status,
+        })),
+        diary: diaryRes.map((d) => ({
+          id: d.id,
+          date: d.date,
+          snippet: (d.content ?? "").slice(0, 140),
+        })),
+      };
+    }),
+});
+
+// ─── Calendar Router ──────────────────────────────────────────────────────────
+// Cache sencilla en memoria por usuario (60s) para evitar rate limits.
+const calendarCache = new Map<number, { expires: number; data: any }>();
+const CALENDAR_CACHE_MS = 60_000;
+
+const calendarRouter = router({
+  listUpcoming: protectedProcedure
+    .input(
+      z
+        .object({
+          hoursAhead: z.number().int().min(1).max(24 * 14).optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+      const hoursAhead = input?.hoursAhead ?? 24 * 7;
+
+      const cached = calendarCache.get(userId);
+      if (cached && cached.expires > Date.now()) {
+        return cached.data;
+      }
+
+      const integrations = await getIntegrationsByUser(userId);
+      const calendarIntegrations = integrations.filter(
+        (i) => i.provider === "google" || i.provider === "microsoft"
+      );
+      if (!calendarIntegrations.length) {
+        const empty = { events: [] as any[], accounts: [] as any[] };
+        calendarCache.set(userId, { expires: Date.now() + CALENDAR_CACHE_MS, data: empty });
+        return empty;
+      }
+
+      const fromIso = new Date().toISOString();
+      const toIso = new Date(Date.now() + hoursAhead * 3600 * 1000).toISOString();
+
+      const results = await Promise.all(
+        calendarIntegrations.map(async (integration) => {
+          try {
+            const events = await listUpcomingEventsForIntegration(integration, fromIso, toIso, 20);
+            return events.map((e) => ({
+              ...e,
+              integrationId: integration.id,
+              accountLabel: integration.label || integration.connectedEmail,
+              provider: integration.provider,
+            }));
+          } catch (err: any) {
+            console.warn(`[Calendar] ${integration.connectedEmail} falló:`, err?.message ?? err);
+            return [];
+          }
+        })
+      );
+
+      const events = results
+        .flat()
+        .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+
+      const accounts = calendarIntegrations.map((i) => ({
+        id: i.id,
+        label: i.label,
+        connectedEmail: i.connectedEmail,
+        provider: i.provider,
+      }));
+
+      const payload = { events, accounts };
+      calendarCache.set(userId, { expires: Date.now() + CALENDAR_CACHE_MS, data: payload });
+      return payload;
+    }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 export const appRouter = router({
   system: systemRouter,
@@ -1150,6 +1350,9 @@ export const appRouter = router({
   notes: notesRouter,
   advisors: advisorsRouter,
   signals: signalsRouter,
+  calendar: calendarRouter,
+  search: searchRouter,
+  userData: userDataRouter,
 });
 
 export type AppRouter = typeof appRouter;
