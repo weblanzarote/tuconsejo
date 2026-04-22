@@ -12,10 +12,28 @@ import {
 } from "./db";
 import { getUserFromRequest } from "./auth-local";
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
-const GOOGLE_REDIRECT_URI =
-  process.env.GOOGLE_REDIRECT_URI ?? "http://localhost:3000/api/auth/google/callback";
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID ?? "").trim();
+const GOOGLE_CLIENT_SECRET = (process.env.GOOGLE_CLIENT_SECRET ?? "").trim();
+
+/** Debe coincidir exactamente con la URI registrada en Google Cloud (sin barra final extra). */
+function redirectUriFromRequest(req: Request): string {
+  const fromEnv = process.env.GOOGLE_REDIRECT_URI?.trim().replace(/\uFEFF/g, "");
+  if (fromEnv) return fromEnv;
+
+  const base = process.env.PUBLIC_APP_URL?.trim().replace(/\uFEFF/g, "").replace(/\/$/, "");
+  if (base) return `${base}/api/auth/google/callback`;
+
+  const xfProto = (req.headers["x-forwarded-proto"] as string | undefined)
+    ?.split(",")[0]
+    ?.trim();
+  const xfHost = (req.headers["x-forwarded-host"] as string | undefined)
+    ?.split(",")[0]
+    ?.trim();
+  const protocol = xfProto || (req.secure ? "https" : req.protocol.replace(":", ""));
+  const host = xfHost || req.get("host") || "";
+  if (!host) return "http://localhost:3000/api/auth/google/callback";
+  return `${protocol}://${host}/api/auth/google/callback`;
+}
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -26,10 +44,10 @@ const SCOPES = [
 ].join(" ");
 
 // ─── Helpers de token ─────────────────────────────────────────────────────────
-export function buildGoogleAuthUrl(state: string): string {
+export function buildGoogleAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: GOOGLE_REDIRECT_URI,
+    redirect_uri: redirectUri,
     response_type: "code",
     scope: SCOPES,
     access_type: "offline",
@@ -39,7 +57,10 @@ export function buildGoogleAuthUrl(state: string): string {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-export async function exchangeCodeForTokens(code: string): Promise<{
+export async function exchangeCodeForTokens(
+  code: string,
+  redirectUri: string
+): Promise<{
   access_token: string;
   refresh_token: string;
   expires_in: number;
@@ -51,7 +72,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
       code,
       client_id: GOOGLE_CLIENT_ID,
       client_secret: GOOGLE_CLIENT_SECRET,
-      redirect_uri: GOOGLE_REDIRECT_URI,
+      redirect_uri: redirectUri,
       grant_type: "authorization_code",
     }).toString(),
   });
@@ -129,15 +150,26 @@ export function registerGoogleOAuthRoutes(app: Express) {
     }
 
     const state = crypto.randomBytes(16).toString("hex");
-    // Guardar state en cookie corta (10 min)
+    const redirectUri = redirectUriFromRequest(req);
+    const isProd = process.env.NODE_ENV === "production";
+    // Guardar state en cookie corta (10 min); secure en prod para alinear con sesión HTTPS
     res.cookie("google_oauth_state", state, {
       httpOnly: true,
       sameSite: "lax",
+      secure: isProd,
+      maxAge: 10 * 60 * 1000,
+      path: "/",
+    });
+    // Misma URI en authorize y en /token (obligatorio por OAuth2)
+    res.cookie("google_oauth_redirect", redirectUri, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isProd,
       maxAge: 10 * 60 * 1000,
       path: "/",
     });
 
-    res.redirect(buildGoogleAuthUrl(state));
+    res.redirect(buildGoogleAuthUrl(state, redirectUri));
   });
 
   // GET /api/auth/google/callback — Google redirige aquí tras el consentimiento
@@ -145,6 +177,8 @@ export function registerGoogleOAuthRoutes(app: Express) {
     try {
       const user = await getUserFromRequest(req);
       if (!user) {
+        res.clearCookie("google_oauth_state", { path: "/" });
+        res.clearCookie("google_oauth_redirect", { path: "/" });
         res.redirect("/?error=not_authenticated");
         return;
       }
@@ -161,18 +195,25 @@ export function registerGoogleOAuthRoutes(app: Express) {
       const returnedState = req.query.state as string;
 
       if (!storedState || storedState !== returnedState) {
+        res.clearCookie("google_oauth_state", { path: "/" });
+        res.clearCookie("google_oauth_redirect", { path: "/" });
         res.redirect("/senales?error=invalid_state");
         return;
       }
 
       const code = req.query.code as string;
       if (!code) {
+        res.clearCookie("google_oauth_state", { path: "/" });
+        res.clearCookie("google_oauth_redirect", { path: "/" });
         res.redirect("/senales?error=no_code");
         return;
       }
 
+      const redirectUri =
+        cookies["google_oauth_redirect"]?.trim() || redirectUriFromRequest(req);
+
       // Canjear code por tokens
-      const tokens = await exchangeCodeForTokens(code);
+      const tokens = await exchangeCodeForTokens(code, redirectUri);
       const connectedEmail = await getGoogleUserEmail(tokens.access_token);
       const tokenExpiry = new Date(Date.now() + tokens.expires_in * 1000);
 
@@ -182,11 +223,13 @@ export function registerGoogleOAuthRoutes(app: Express) {
         tokenExpiry,
       });
 
-      // Limpiar state cookie
       res.clearCookie("google_oauth_state", { path: "/" });
+      res.clearCookie("google_oauth_redirect", { path: "/" });
       res.redirect("/senales");
     } catch (err) {
       console.error("[Google OAuth] callback error:", err);
+      res.clearCookie("google_oauth_state", { path: "/" });
+      res.clearCookie("google_oauth_redirect", { path: "/" });
       res.redirect("/senales?error=oauth_failed");
     }
   });
