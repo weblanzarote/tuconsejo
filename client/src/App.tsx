@@ -131,7 +131,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         {/* Fondo global oscuro difuminado */}
-        <div className="fixed inset-0 z-[-1] bg-[url('/assets/background-dark.webp')] bg-cover bg-center bg-no-repeat opacity-80" />
+        <div className="fixed inset-0 z-[-1] bg-[url('/assets/background-dark.webp')] bg-cover bg-center bg-no-repeat opacity-40" />
 
         <TooltipProvider>
           <Toaster />

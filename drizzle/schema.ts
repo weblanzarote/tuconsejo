@@ -18,6 +18,7 @@ export const users = sqliteTable("users", {
   guardianEnabled: integer("guardianEnabled", { mode: "boolean" }).default(false).notNull(),
   valuesFrameworkName: text("valuesFrameworkName"),
   emailFilterPrefs: text("emailFilterPrefs"),
+  autoSyncEnabled: integer("autoSyncEnabled", { mode: "boolean" }).default(true).notNull(),
   /** IANA, p. ej. Europe/Madrid — define el "día civil" del diario en servidor y cliente */
   timezone: text("timezone"),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
@@ -163,6 +164,8 @@ export const diaryEntries = sqliteTable("diary_entries", {
 export type DiaryEntry = typeof diaryEntries.$inferSelect;
 export type InsertDiaryEntry = typeof diaryEntries.$inferInsert;
 
+// ─── (usuarios: campo autoSyncEnabled añadido vía migración ALTER TABLE en db.ts) ──
+
 // ─── Notas ────────────────────────────────────────────────────────────────────
 export const notes = sqliteTable("notes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -207,6 +210,9 @@ export const userIntegrations = sqliteTable("user_integrations", {
   smtpPort: integer("smtpPort"),
   smtpSecure: integer("smtpSecure", { mode: "boolean" }).default(true),
 
+  // Preferencias de filtrado específicas de esta cuenta (prompt adicional para el clasificador IA)
+  emailFilterPrefs: text("emailFilterPrefs"),
+
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .default(sql`(unixepoch() * 1000)`)
     .notNull(),
@@ -231,7 +237,7 @@ export const emailSignals = sqliteTable("email_signals", {
   fullBody: text("fullBody"),
   receivedAt: integer("receivedAt", { mode: "timestamp_ms" }),
   status: text("status", {
-    enum: ["pending", "replied", "ignored", "converted"],
+    enum: ["pending", "replied", "ignored", "converted", "archived"],
   })
     .default("pending")
     .notNull(),

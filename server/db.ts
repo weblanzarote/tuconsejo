@@ -214,6 +214,8 @@ export function initializeDatabase() {
     "ALTER TABLE action_items ADD COLUMN tipo TEXT NOT NULL DEFAULT 'tarea'",
     "ALTER TABLE email_signals ADD COLUMN classifierUserFeedback TEXT",
     "ALTER TABLE users ADD COLUMN timezone TEXT",
+    "ALTER TABLE user_integrations ADD COLUMN emailFilterPrefs TEXT",
+    "ALTER TABLE users ADD COLUMN autoSyncEnabled INTEGER NOT NULL DEFAULT 1",
   ];
   for (const migration of migrations) {
     try { sqlite.exec(migration); } catch (_) { /* columna ya existe */ }
@@ -283,6 +285,23 @@ export async function updateUserOnboarding(
   await db
     .update(users)
     .set({ ...data, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+export async function getAutoSyncUserIds(): Promise<number[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.autoSyncEnabled, true));
+  return rows.map((r) => r.id);
+}
+
+export async function setUserAutoSync(userId: number, enabled: boolean) {
+  const db = getDb();
+  await db
+    .update(users)
+    .set({ autoSyncEnabled: enabled, updatedAt: new Date() })
     .where(eq(users.id, userId));
 }
 
@@ -706,6 +725,14 @@ export async function updateIntegrationTokens(
     .where(eq(userIntegrations.id, id));
 }
 
+export async function setIntegrationFilterPrefs(userId: number, id: number, prefs: string) {
+  const db = getDb();
+  await db
+    .update(userIntegrations)
+    .set({ emailFilterPrefs: prefs, updatedAt: new Date() })
+    .where(and(eq(userIntegrations.id, id), eq(userIntegrations.userId, userId)));
+}
+
 export async function deleteIntegrationById(userId: number, id: number) {
   const db = getDb();
   await db
@@ -765,7 +792,7 @@ export async function getEmailSignalById(userId: number, id: number) {
 export async function updateEmailSignalStatus(
   userId: number,
   id: number,
-  status: "pending" | "replied" | "ignored" | "converted",
+  status: "pending" | "replied" | "ignored" | "converted" | "archived",
   extra?: { draftReply?: string; taskId?: number; googleCalendarEventId?: string }
 ) {
   const db = getDb();

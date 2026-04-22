@@ -14,6 +14,8 @@ import {
   ChevronUp,
   ThumbsUp,
   ThumbsDown,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -218,8 +220,9 @@ function ConvertDrawer({ signal, onClose, onConverted }: {
 }
 
 // ─── Tarjeta de correo ────────────────────────────────────────────────────────
-function CorreoCard({ signal, onIgnored, onReplied, onConverted }: {
+function CorreoCard({ signal, variant = "pending", onIgnored, onReplied, onConverted }: {
   signal: { id: number; subject: string; fromName: string; fromAddress: string; snippet: string; fullBody?: string | null; receivedAt?: Date | null; draftReply?: string | null; classifierUserFeedback?: "spot_on" | "not_important" | null };
+  variant?: "pending" | "archived";
   onIgnored: () => void; onReplied: () => void; onConverted: () => void;
 }) {
   const [showReplyDrawer, setShowReplyDrawer] = useState(false);
@@ -229,6 +232,26 @@ function CorreoCard({ signal, onIgnored, onReplied, onConverted }: {
   const ignoreMutation = trpc.signals.ignore.useMutation({
     onSuccess: async () => { await utils.signals.list.invalidate(); await utils.signals.pendingCount.invalidate(); onIgnored(); },
     onError: () => toast.error("No se pudo ignorar"),
+  });
+
+  const archiveMutation = trpc.signals.archive.useMutation({
+    onSuccess: async () => {
+      await utils.signals.list.invalidate();
+      await utils.signals.pendingCount.invalidate();
+      toast.success("Guardado en archivados");
+      onIgnored();
+    },
+    onError: () => toast.error("No se pudo archivar"),
+  });
+
+  const unarchiveMutation = trpc.signals.unarchive.useMutation({
+    onSuccess: async () => {
+      await utils.signals.list.invalidate();
+      await utils.signals.pendingCount.invalidate();
+      toast.success("Movido a pendientes");
+      onIgnored();
+    },
+    onError: () => toast.error("No se pudo restaurar"),
   });
 
   const feedbackMutation = trpc.signals.setClassifierFeedback.useMutation({
@@ -293,16 +316,27 @@ function CorreoCard({ signal, onIgnored, onReplied, onConverted }: {
             <ThumbsDown className="h-3 w-3" /> No era tan importante
           </button>
         </div>
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex items-center gap-2 pt-1 flex-wrap">
           <button onClick={() => setShowReplyDrawer(true)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer">
             <Send className="h-3 w-3" /> Responder
           </button>
           <button onClick={() => setShowConvertDrawer(true)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer">
             <Plus className="h-3 w-3" /> Tarea
           </button>
-          <button onClick={() => ignoreMutation.mutate({ id: signal.id })} disabled={ignoreMutation.isPending} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer ml-auto" title="Ignorar">
-            <X className="h-3 w-3" /> Ignorar
-          </button>
+          {variant === "pending" ? (
+            <>
+              <button onClick={() => archiveMutation.mutate({ id: signal.id })} disabled={archiveMutation.isPending} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer" title="Guardar para consulta (quita la notificación)">
+                <Archive className="h-3 w-3" /> Guardar
+              </button>
+              <button onClick={() => ignoreMutation.mutate({ id: signal.id })} disabled={ignoreMutation.isPending} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer ml-auto" title="Ignorar">
+                <X className="h-3 w-3" /> Ignorar
+              </button>
+            </>
+          ) : (
+            <button onClick={() => unarchiveMutation.mutate({ id: signal.id })} disabled={unarchiveMutation.isPending} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer ml-auto" title="Restaurar a pendientes">
+              <ArchiveRestore className="h-3 w-3" /> Restaurar
+            </button>
+          )}
         </div>
       </div>
       {showReplyDrawer && (
@@ -431,12 +465,70 @@ function PreferenciasSection() {
   );
 }
 
+// ─── Preferencias de una cuenta concreta ──────────────────────────────────────
+function AccountPrefsSection({ integrationId, label }: { integrationId: number; label: string }) {
+  const [open, setOpen] = useState(false);
+  const [localPrefs, setLocalPrefs] = useState("");
+  const [synced, setSynced] = useState(false);
+  const { data, isLoading } = trpc.signals.getIntegrationPrefs.useQuery(
+    { integrationId },
+    { enabled: open }
+  );
+  const setPrefs = trpc.signals.setIntegrationPrefs.useMutation({
+    onSuccess: () => toast.success("Preferencias de la cuenta guardadas"),
+    onError: () => toast.error("No se pudo guardar"),
+  });
+
+  if (open && !isLoading && !synced && data?.prefs !== undefined) {
+    setLocalPrefs(data.prefs);
+    setSynced(true);
+  }
+
+  return (
+    <div className="border border-border/60 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer"
+      >
+        <span className="flex items-center gap-1.5"><Settings className="h-3.5 w-3.5" /> Preferencias · {label}</span>
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-border/60">
+          <p className="text-xs text-muted-foreground pt-2">
+            Reglas específicas para esta cuenta. Si queda vacío, se usan las preferencias globales.
+          </p>
+          <textarea
+            value={localPrefs}
+            onChange={(e) => setLocalPrefs(e.target.value)}
+            placeholder={'Ej: "Esta es la cuenta de trabajo. Prioriza emails de clientes y del equipo."'}
+            rows={3}
+            className="w-full text-xs bg-muted border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
+          />
+          <div className="flex justify-end">
+            <button
+              onClick={() => setPrefs.mutate({ integrationId, prefs: localPrefs })}
+              disabled={setPrefs.isPending}
+              className={cn("text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer",
+                !setPrefs.isPending ? "bg-foreground text-background hover:bg-foreground/90" : "bg-muted text-muted-foreground cursor-not-allowed"
+              )}
+            >
+              {setPrefs.isPending ? "Guardando..." : "Guardar"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function CorreosPage() {
   const utils = trpc.useUtils();
   const { data: accounts = [], isLoading: accountsLoading, refetch: refetchAccounts } = trpc.signals.listAccounts.useQuery();
+  const [activeTab, setActiveTab] = useState<"pending" | "archived">("pending");
   const { data: signals, isLoading: signalsLoading } = trpc.signals.list.useQuery(
-    { status: "pending" },
+    { status: activeTab },
     { enabled: accounts.length > 0 }
   );
   const [showImapModal, setShowImapModal] = useState(false);
@@ -531,20 +623,23 @@ export default function CorreosPage() {
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground uppercase tracking-wider">Cuentas conectadas</p>
           {accounts.map((acc) => (
-            <div key={acc.id} className="flex items-center justify-between text-xs text-muted-foreground px-3 py-2 rounded-lg border border-border">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[10px] uppercase font-medium bg-muted px-1.5 py-0.5 rounded text-foreground/60 flex-shrink-0">
-                  {PROVIDER_LABELS[acc.provider] ?? acc.provider}
-                </span>
-                <span className="truncate">{acc.label ? `${acc.label} — ${acc.email}` : acc.email}</span>
+            <div key={acc.id} className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-muted-foreground px-3 py-2 rounded-lg border border-border">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] uppercase font-medium bg-muted px-1.5 py-0.5 rounded text-foreground/60 flex-shrink-0">
+                    {PROVIDER_LABELS[acc.provider] ?? acc.provider}
+                  </span>
+                  <span className="truncate">{acc.label ? `${acc.label} — ${acc.email}` : acc.email}</span>
+                </div>
+                <button
+                  onClick={() => { if (confirm("¿Desconectar esta cuenta?")) removeMutation.mutate({ id: acc.id }); }}
+                  className="flex-shrink-0 ml-2 p-1 text-muted-foreground/40 hover:text-destructive transition-colors cursor-pointer"
+                  title="Desconectar"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
-              <button
-                onClick={() => { if (confirm("¿Desconectar esta cuenta?")) removeMutation.mutate({ id: acc.id }); }}
-                className="flex-shrink-0 ml-2 p-1 text-muted-foreground/40 hover:text-destructive transition-colors cursor-pointer"
-                title="Desconectar"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              <AccountPrefsSection integrationId={acc.id} label={acc.label ?? acc.email} />
             </div>
           ))}
         </div>
@@ -577,6 +672,30 @@ export default function CorreosPage() {
       {/* Preferencias de filtrado */}
       {hasAccounts && <PreferenciasSection />}
 
+      {/* Tabs Pendientes / Archivados */}
+      {hasAccounts && (
+        <div className="flex items-center gap-2 border-b border-border">
+          <button
+            onClick={() => setActiveTab("pending")}
+            className={cn(
+              "text-sm px-3 py-2 -mb-px border-b-2 transition-colors cursor-pointer",
+              activeTab === "pending" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Pendientes
+          </button>
+          <button
+            onClick={() => setActiveTab("archived")}
+            className={cn(
+              "text-sm px-3 py-2 -mb-px border-b-2 transition-colors cursor-pointer flex items-center gap-1.5",
+              activeTab === "archived" ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Archive className="h-3.5 w-3.5" /> Archivados
+          </button>
+        </div>
+      )}
+
       {/* Lista de correos */}
       {hasAccounts && (
         <>
@@ -592,9 +711,19 @@ export default function CorreosPage() {
             </div>
           ) : pendingSignals.length === 0 ? (
             <div className="text-center py-16 space-y-2">
-              <Check className="h-8 w-8 text-muted-foreground/40 mx-auto" />
-              <p className="text-sm text-muted-foreground">Sin correos pendientes</p>
-              <p className="text-xs text-muted-foreground/60">Pulsa "Actualizar" para revisar tu bandeja</p>
+              {activeTab === "pending" ? (
+                <>
+                  <Check className="h-8 w-8 text-muted-foreground/40 mx-auto" />
+                  <p className="text-sm text-muted-foreground">Sin correos pendientes</p>
+                  <p className="text-xs text-muted-foreground/60">Pulsa "Actualizar" para revisar tu bandeja</p>
+                </>
+              ) : (
+                <>
+                  <Archive className="h-8 w-8 text-muted-foreground/40 mx-auto" />
+                  <p className="text-sm text-muted-foreground">No hay correos archivados</p>
+                  <p className="text-xs text-muted-foreground/60">Pulsa "Guardar" en un correo para conservarlo aquí</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -602,6 +731,7 @@ export default function CorreosPage() {
                 <CorreoCard
                   key={signal.id}
                   signal={signal as any}
+                  variant={activeTab}
                   onIgnored={() => utils.signals.list.invalidate()}
                   onReplied={() => utils.signals.list.invalidate()}
                   onConverted={() => utils.signals.list.invalidate()}

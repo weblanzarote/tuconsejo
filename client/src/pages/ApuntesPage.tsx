@@ -15,6 +15,7 @@ import {
   ChevronUp,
   MessageCircle,
   RefreshCw,
+  ListPlus,
 } from "lucide-react";
 import { AGENT_NAMES, AGENT_EMOJIS, AGENT_COLORS, type AgentId } from "@/lib/agents";
 import { useLocation } from "wouter";
@@ -58,9 +59,18 @@ function NotasTab() {
     { query: searchQuery },
     { enabled: searchQuery.length >= 2 }
   );
+  const utils = trpc.useUtils();
   const createNote = trpc.notes.create.useMutation({ onSuccess: () => refetch() });
   const updateNote = trpc.notes.update.useMutation({ onSuccess: () => refetch() });
   const deleteNote = trpc.notes.delete.useMutation({ onSuccess: () => refetch() });
+  const convertToTask = trpc.notes.convertToTask.useMutation({
+    onSuccess: () => {
+      utils.actionPlan.list.invalidate();
+      refetch();
+      toast.success("Idea convertida en tarea");
+    },
+    onError: () => toast.error("No se pudo convertir"),
+  });
 
   const notes = searchQuery.length >= 2 ? (searchResults ?? []) : allNotes;
   const filtered = tagFilter === "todas" ? notes : notes.filter((n) => n.tag === tagFilter);
@@ -102,6 +112,14 @@ function NotasTab() {
     closeEditor();
   };
 
+  const handleConvertToTask = async () => {
+    if (!editingNote?.id) return;
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    await saveCurrentNote(editingNote);
+    await convertToTask.mutateAsync({ id: editingNote.id });
+    closeEditor();
+  };
+
   const handleTogglePin = async (id: number, current: boolean) => {
     await updateNote.mutateAsync({ id, isPinned: !current });
     refetch();
@@ -125,6 +143,17 @@ function NotasTab() {
               ))}
             </select>
             <div className="flex items-center gap-1 ml-auto">
+              {editingNote.tag === "idea" && editingNote.id && (
+                <button
+                  onClick={handleConvertToTask}
+                  disabled={convertToTask.isPending}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Convertir esta idea en una tarea"
+                >
+                  <ListPlus className="h-3.5 w-3.5" />
+                  Convertir en tarea
+                </button>
+              )}
               <button onClick={handleDelete} disabled={!editingNote.id} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors cursor-pointer disabled:opacity-30" title="Eliminar nota">
                 <Trash2 className="h-4 w-4" />
               </button>

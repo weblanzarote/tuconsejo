@@ -19,7 +19,7 @@ async function generateBg() {
     taskUUID: crypto.randomUUID(),
     model: 'runware:108@1',
     // Strong prompt for pure abstract gradient
-    positivePrompt: 'pure abstract background, 3d smooth liquid gradient blur, deep rich dark colors, subtle cyber ambient light, 8k resolution, premium ui desktop wallpaper, glassmorphism vibe, out of focus, minimalist, elegant, modern',
+    positivePrompt: 'very dark pure abstract background, 3d smooth liquid gradient blur, deep rich black and neon colors, subtle cyber ambient light, 8k resolution, premium ui desktop wallpaper, glassmorphism vibe, out of focus, minimalist, elegant, modern, extremely dark lighting',
     negativePrompt: 'person, face, human, character, text, logo, sharp details, object, shape',
     width: 1920,
     height: 1080,

@@ -14,6 +14,7 @@ import { registerGoogleOAuthRoutes } from "../google-oauth";
 import { registerMicrosoftOAuthRoutes } from "../microsoft-oauth";
 import { initializeDatabase } from "../db";
 import { appRouter } from "../routers";
+import { startAutoSyncScheduler } from "../autoSync";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -48,6 +49,8 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // Inicializar base de datos SQLite
   initializeDatabase();
+  // Scheduler de sincronización automática de correos
+  startAutoSyncScheduler();
   // Rutas de autenticación local
   registerLocalAuthRoutes(app);
   // Rutas de Google OAuth (Gmail + Calendar)

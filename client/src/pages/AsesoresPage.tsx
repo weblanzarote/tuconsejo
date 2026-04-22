@@ -207,6 +207,100 @@ export default function AsesoresPage() {
     });
   };
 
+  const isEmpty = sessionHistory.length === 0;
+
+  const inputArea = (
+    <div className={cn("space-y-3", !isEmpty && "py-4 border-t border-border")}>
+      {/* Vista previa de asesores seleccionados */}
+      {(selectedAgents.length > 0 || predictedAgents.length > 0) && input.length >= 10 && (
+        <div className="flex items-center gap-2 flex-wrap animate-fade-in">
+          <span className="text-xs text-muted-foreground">Responderán:</span>
+          {selectedAgents.map((id) => {
+            return (
+              <button
+                key={id}
+                onClick={() => toggleAgent(id)}
+                className="flex items-center gap-1.5 text-xs pr-2 pl-0.5 py-0.5 rounded-full border border-white/20 bg-black/50 backdrop-blur-md cursor-pointer transition-all hover:bg-black/80"
+                style={{ color: "#FFF" }}
+              >
+                <img src={`/assets/advisor-${id}.webp`} alt={id} className="w-5 h-5 rounded-full object-cover border border-white/10" />
+                <span className="font-medium tracking-wide">{AGENT_NAMES[id]}</span>
+                <X className="h-3 w-3 ml-0.5 text-white/50" />
+              </button>
+            );
+          })}
+          {MAIN_AGENTS.filter((id) => !selectedAgents.includes(id)).map((id) => (
+            <button
+              key={id}
+              onClick={() => toggleAgent(id)}
+              className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-border text-muted-foreground cursor-pointer hover:border-foreground/30 transition-colors"
+            >
+              {AGENT_EMOJIS[id]} <span>+</span>
+            </button>
+          ))}
+          <button
+            onClick={selectAll}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2 ml-1"
+          >
+            Todos
+          </button>
+        </div>
+      )}
+
+      {/* Textarea */}
+      <div className="flex gap-2 items-end">
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Escribe tu pregunta... (Enter para enviar, Shift+Enter para salto de línea)"
+          disabled={isSending}
+          className="flex-1 text-sm bg-muted border border-border rounded-lg px-3 py-2.5 resize-none min-h-[44px] max-h-[200px] focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/50 disabled:opacity-60"
+          rows={1}
+        />
+        <button
+          onClick={handleSend}
+          disabled={!input.trim() || isSending}
+          className={cn(
+            "flex-shrink-0 p-2.5 rounded-lg transition-colors cursor-pointer",
+            input.trim() && !isSending
+              ? "bg-foreground text-background hover:bg-foreground/90"
+              : "bg-muted text-muted-foreground cursor-not-allowed"
+          )}
+        >
+          <Send className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs text-muted-foreground">
+          {isSending
+            ? "Consultando asesores..."
+            : "Los asesores también tienen en cuenta tu diario de hoy."
+          }
+        </p>
+        <div className="flex items-center gap-3">
+          <Link href="/notas">
+            <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
+              Notas →
+            </span>
+          </Link>
+          <Link href="/perfil">
+            <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
+              Mi Perfil →
+            </span>
+          </Link>
+          <Link href="/boardroom">
+            <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
+              Sala de Juntas →
+            </span>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex flex-col h-full max-w-2xl mx-auto px-6">
       {/* ── Cabecera ── */}
@@ -217,10 +311,10 @@ export default function AsesoresPage() {
         </p>
       </div>
 
-      {/* ── Historial de sesión ── */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar space-y-8 pb-4">
-        {sessionHistory.length === 0 && (
-          <div className="py-12 text-center space-y-2">
+      {isEmpty ? (
+        /* ── Estado inicial: saludo + input centrados ── */
+        <div className="flex-1 flex flex-col justify-center pb-6">
+          <div className="text-center space-y-2 mb-6">
             <p className="text-muted-foreground text-sm">¿En qué puedo ayudarte hoy?</p>
             {todayEntry?.content && (
               <div className="mt-4 p-3 bg-muted rounded-lg text-xs text-muted-foreground flex items-start gap-2 text-left">
@@ -231,9 +325,25 @@ export default function AsesoresPage() {
               </div>
             )}
           </div>
-        )}
 
-        {sessionHistory.map((msg, msgIdx) => (
+          {inputArea}
+
+          <div className="pt-4 flex justify-start">
+            <Link
+              href="/chat/encuestador"
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded-full border border-border/40 hover:border-border/80"
+            >
+              <span aria-hidden>📋</span>
+              <span>Lucía — completar perfil</span>
+              <span className="opacity-50">→</span>
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* ── Historial de sesión ── */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar space-y-8 pb-4">
+            {sessionHistory.map((msg, msgIdx) => (
           <div key={msgIdx} className="space-y-4 animate-fade-in-up">
             {/* Pregunta del usuario */}
             <div className="flex justify-end">
@@ -310,113 +420,24 @@ export default function AsesoresPage() {
             </div>
           </div>
         ))}
-        <div ref={bottomRef} />
-      </div>
+            <div ref={bottomRef} />
+          </div>
 
-      {/* Lucía — perfil progresivo */}
-      <div className="pb-1 flex justify-start">
-        <Link
-          href="/chat/encuestador"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded-full border border-border/40 hover:border-border/80"
-        >
-          <span aria-hidden>📋</span>
-          <span>Lucía — completar perfil</span>
-          <span className="opacity-50">→</span>
-        </Link>
-      </div>
-
-      {/* ── Input area ── */}
-      <div className="py-4 border-t border-border space-y-3">
-        {/* Vista previa de asesores seleccionados */}
-        {(selectedAgents.length > 0 || predictedAgents.length > 0) && input.length >= 10 && (
-          <div className="flex items-center gap-2 flex-wrap animate-fade-in">
-            <span className="text-xs text-muted-foreground">Responderán:</span>
-            {selectedAgents.map((id) => {
-              const color = AGENT_COLORS_LIGHT[id];
-              return (
-                <button
-                  key={id}
-                  onClick={() => toggleAgent(id)}
-                  className="flex items-center gap-1.5 text-xs pr-2 pl-0.5 py-0.5 rounded-full border border-white/20 bg-black/50 backdrop-blur-md cursor-pointer transition-all hover:bg-black/80"
-                  style={{ color: "#FFF" }}
-                >
-                  <img src={`/assets/advisor-${id}.webp`} alt={id} className="w-5 h-5 rounded-full object-cover border border-white/10" />
-                  <span className="font-medium tracking-wide">{AGENT_NAMES[id]}</span>
-                  <X className="h-3 w-3 ml-0.5 text-white/50" />
-                </button>
-              );
-            })}
-            {/* Añadir asesores no seleccionados */}
-            {MAIN_AGENTS.filter((id) => !selectedAgents.includes(id)).map((id) => (
-              <button
-                key={id}
-                onClick={() => toggleAgent(id)}
-                className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-border text-muted-foreground cursor-pointer hover:border-foreground/30 transition-colors"
-              >
-                {AGENT_EMOJIS[id]} <span>+</span>
-              </button>
-            ))}
-            <button
-              onClick={selectAll}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2 ml-1"
+          {/* Lucía — perfil progresivo */}
+          <div className="pb-1 flex justify-start">
+            <Link
+              href="/chat/encuestador"
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2.5 py-1 rounded-full border border-border/40 hover:border-border/80"
             >
-              Todos
-            </button>
-          </div>
-        )}
-
-        {/* Textarea */}
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Escribe tu pregunta... (Enter para enviar, Shift+Enter para salto de línea)"
-            disabled={isSending}
-            className="flex-1 text-sm bg-muted border border-border rounded-lg px-3 py-2.5 resize-none min-h-[44px] max-h-[200px] focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/50 disabled:opacity-60"
-            rows={1}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || isSending}
-            className={cn(
-              "flex-shrink-0 p-2.5 rounded-lg transition-colors cursor-pointer",
-              input.trim() && !isSending
-                ? "bg-foreground text-background hover:bg-foreground/90"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
-            )}
-          >
-            <Send className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
-            {isSending
-              ? "Consultando asesores..."
-              : "Los asesores también tienen en cuenta tu diario de hoy."
-            }
-          </p>
-          <div className="flex items-center gap-3">
-            <Link href="/notas">
-              <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
-                Notas →
-              </span>
-            </Link>
-            <Link href="/perfil">
-              <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
-                Mi Perfil →
-              </span>
-            </Link>
-            <Link href="/boardroom">
-              <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
-                Sala de Juntas →
-              </span>
+              <span aria-hidden>📋</span>
+              <span>Lucía — completar perfil</span>
+              <span className="opacity-50">→</span>
             </Link>
           </div>
-        </div>
-      </div>
+
+          {inputArea}
+        </>
+      )}
     </div>
   );
 }

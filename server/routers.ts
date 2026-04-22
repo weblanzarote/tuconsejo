@@ -27,6 +27,7 @@ import {
   searchDiaryEntries,
   getDiaryEntriesByMonth,
   getNotesByUser,
+  getNoteById,
   insertNote,
   updateNote,
   deleteNote,
@@ -42,11 +43,13 @@ import {
   getPendingSignalCount,
   getEmailFilterPrefs,
   setEmailFilterPrefs,
+  setIntegrationFilterPrefs,
   updateActionItemTipo,
   setEmailSignalClassifierFeedback,
   getRecentClassifierFeedbackExamples,
 } from "./db";
 import { getProvider, createCalendarEventForIntegration } from "./providers";
+import { syncUserEmails } from "./emailSync";
 import { testImapConnection } from "./providers/imap";
 import { encrypt } from "./crypto-utils";
 import { formatYyyyMmDdInTimeZone } from "./dateTz";
@@ -570,6 +573,39 @@ const notesRouter = router({
       await deleteNote(ctx.user.id, input.id);
       return { success: true };
     }),
+
+  convertToTask: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        priority: z.enum(["alta", "media", "baja"]).optional(),
+        deadline: z.string().optional(),
+        agentId: AgentIdSchema.optional(),
+        keepNote: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const note = await getNoteById(ctx.user.id, input.id);
+      if (!note) throw new TRPCError({ code: "NOT_FOUND", message: "Nota no encontrada" });
+
+      const title = (note.title?.trim() || note.content.slice(0, 120).trim() || "Idea sin título");
+      const description = note.title?.trim() ? note.content : undefined;
+
+      const task = await insertActionItem({
+        userId: ctx.user.id,
+        agentId: (input.agentId as AgentId | undefined) ?? "guardian",
+        title,
+        description,
+        priority: input.priority ?? "media",
+        deadline: input.deadline ? new Date(input.deadline) : undefined,
+        tipo: "tarea",
+      });
+
+      if (!input.keepNote) {
+        await deleteNote(ctx.user.id, input.id);
+      }
+      return { success: true, taskId: task?.id };
+    }),
 });
 
 // ─── Router de Asesores (con enrutamiento inteligente) ────────────────────────
@@ -762,6 +798,23 @@ const signalsRouter = router({
       return { success: true };
     }),
 
+  // Leer preferencias de filtrado de una cuenta concreta
+  getIntegrationPrefs: protectedProcedure
+    .input(z.object({ integrationId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const integration = await getIntegrationById(ctx.user.id, input.integrationId);
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Cuenta no encontrada" });
+      return { prefs: integration.emailFilterPrefs ?? "" };
+    }),
+
+  // Guardar preferencias de filtrado específicas de una cuenta
+  setIntegrationPrefs: protectedProcedure
+    .input(z.object({ integrationId: z.number(), prefs: z.string().max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      await setIntegrationFilterPrefs(ctx.user.id, input.integrationId, input.prefs);
+      return { success: true };
+    }),
+
   // Eliminar una cuenta conectada
   removeAccount: protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -814,94 +867,11 @@ const signalsRouter = router({
 
   // Sincronizar emails desde TODAS las cuentas conectadas
   sync: protectedProcedure.mutation(async ({ ctx }) => {
-    const userId = ctx.user.id;
-    const integrations = await getIntegrationsByUser(userId);
+    const integrations = await getIntegrationsByUser(ctx.user.id);
     if (!integrations.length) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No hay cuentas conectadas" });
     }
-    const userEmailPrefs = await getEmailFilterPrefs(userId);
-    const feedbackExamples = await getRecentClassifierFeedbackExamples(userId, 15);
-    let classifierLearningBlock = "";
-    if (feedbackExamples.length > 0) {
-      const lines = feedbackExamples.map((r) => {
-        const tag =
-          r.classifierUserFeedback === "not_important" ? "USUARIO_DICE_NO_IMPORTANTE" : "USUARIO_CONFIRMO_IMPORTANTE";
-        const prev = (r.snippet ?? "").replace(/\s+/g, " ").slice(0, 140);
-        return `- [${tag}] remitente=${r.fromAddress} asunto="${(r.subject ?? "").slice(0, 80)}" vista_previa="${prev}"`;
-      });
-      classifierLearningBlock = `\n\nAprendizaje de correcciones anteriores del usuario (últimas ${feedbackExamples.length} marcas). Aplica esto al clasificar correos NUEVOS similares en remitente, tono o tipo:\n${lines.join("\n")}\n- Si ves USUARIO_DICE_NO_IMPORTANTE: trata patrones parecidos como ruido salvo que sea claramente distinto.\n- Si ves USUARIO_CONFIRMO_IMPORTANTE: prioriza patrones parecidos como importantes.`;
-    }
-
-    let totalSynced = 0;
-    let totalNew = 0;
-    const errors: string[] = [];
-
-    for (const integration of integrations) {
-      try {
-        const provider = getProvider(integration);
-        const messageList = await provider.fetchRecent(integration, 30);
-        if (!messageList.length) continue;
-
-        const details = await Promise.all(
-          messageList.slice(0, 30).map((m) => provider.fetchDetail(integration, m.providerMessageId).catch(() => null))
-        );
-        const validDetails = details.filter(Boolean) as NonNullable<typeof details[0]>[];
-        if (!validDetails.length) continue;
-        totalSynced += validDetails.length;
-
-        // Filtro IA de relevancia
-        const emailList = validDetails.map((d) => ({
-          id: d.providerMessageId,
-          subject: d.subject,
-          from: d.fromName || d.fromAddress,
-          snippet: d.snippet.slice(0, 200),
-        }));
-
-        let importantIds: string[] = [];
-        try {
-          const filterResponse = await invokeLLM({
-            messages: [
-              {
-                role: "system",
-                content:
-                  `Eres un filtro inteligente de emails personales. Analiza la lista de correos y devuelve SOLO los IDs de los que son importantes o requieren acción real del usuario. Ignora newsletters, notificaciones automáticas, marketing, confirmaciones de compra rutinarias y spam.${userEmailPrefs ? ` Preferencias adicionales del usuario: ${userEmailPrefs}` : ""}${classifierLearningBlock} Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
-              },
-              { role: "user", content: JSON.stringify(emailList) },
-            ],
-            responseFormat: { type: "json_object" },
-            maxTokens: 300,
-          });
-          const rawFilter = filterResponse.choices[0]?.message?.content;
-          const raw = typeof rawFilter === "string" ? rawFilter : "{}";
-          const parsed = JSON.parse(raw) as { important?: string[] };
-          importantIds = parsed.important ?? [];
-        } catch {
-          importantIds = validDetails.slice(0, 5).map((d) => d.providerMessageId);
-        }
-
-        for (const detail of validDetails) {
-          if (!importantIds.includes(detail.providerMessageId)) continue;
-          const inserted = await insertEmailSignal({
-            userId,
-            integrationId: integration.id,
-            // Prefijo con integrationId para evitar colisiones entre cuentas distintas
-            gmailMessageId: `${integration.id}:${detail.providerMessageId}`,
-            subject: detail.subject,
-            fromAddress: detail.fromAddress,
-            fromName: detail.fromName,
-            snippet: detail.snippet,
-            fullBody: detail.fullBody,
-            receivedAt: detail.receivedAt,
-            status: "pending",
-          });
-          if (inserted) totalNew++;
-        }
-      } catch (err: any) {
-        errors.push(`${integration.provider}/${integration.connectedEmail}: ${err?.message ?? err}`);
-      }
-    }
-
-    return { synced: totalSynced, newSignals: totalNew, errors };
+    return await syncUserEmails(ctx.user.id);
   }),
 
   // Listar señales
@@ -922,6 +892,22 @@ const signalsRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       await updateEmailSignalStatus(ctx.user.id, input.id, "ignored");
+      return { success: true };
+    }),
+
+  // Archivar señal (correo guardado para consulta, sin notificación)
+  archive: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await updateEmailSignalStatus(ctx.user.id, input.id, "archived");
+      return { success: true };
+    }),
+
+  // Mover correo archivado a pendiente de nuevo
+  unarchive: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await updateEmailSignalStatus(ctx.user.id, input.id, "pending");
       return { success: true };
     }),
 
