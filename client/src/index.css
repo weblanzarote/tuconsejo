@@ -191,12 +191,31 @@
 }
 
 /* ─── Chat / Diary Markdown ───────────────────────────────────────────────── */
-.chat-markdown p { margin-bottom: 0.75rem; }
-.chat-markdown ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; }
-.chat-markdown ol { list-style: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; }
-.chat-markdown strong { font-weight: 600; }
-.chat-markdown h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 0.75rem; font-family: "Inter", sans-serif; }
+.chat-markdown {
+  @apply bg-black/40 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)];
+}
+.chat-markdown p { margin-bottom: 0.75rem; color: rgba(255, 255, 255, 0.9); }
+.chat-markdown ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; color: rgba(255, 255, 255, 0.9); }
+.chat-markdown ol { list-style: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; color: rgba(255, 255, 255, 0.9); }
+.chat-markdown strong { font-weight: 600; color: #FFFFFF; }
+.chat-markdown h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 0.75rem; font-family: "Inter", sans-serif; color: #FFFFFF; }
 .chat-markdown code { background: rgba(255, 255, 255, 0.1); padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.8rem; font-family: "JetBrains Mono", monospace; color: #FFFFFF; }
 .chat-markdown pre { background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; }
 .chat-markdown blockquote { border-left: 2px solid #A277FF; padding-left: 0.75rem; font-style: italic; color: #A0A0A0; }
 .chat-markdown a { color: #A277FF; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ─── Tablas Responsivas ─────────────────────────────────────────────────── */
+.chat-markdown table {
+  @apply w-full text-left border-collapse mt-4 mb-6;
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap;
+}
+.chat-markdown th, .chat-markdown td {
+  @apply border border-white/10 px-4 py-3;
+  color: rgba(255, 255, 255, 0.9);
+}
+.chat-markdown th {
+  @apply bg-white/5 font-semibold text-white;
+}

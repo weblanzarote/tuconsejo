@@ -72,6 +72,13 @@ const BATCHES = [
     model: 'runware:108@1',
     width: 512,
     height: 512
+  },
+  {
+    name: 'app-logo.webp',
+    prompt: 'A minimalist, elegant, modern 3D icon for an AI advisory app, dark premium aesthetic, neon purple and black accents, glassmorphism style, subtle glowing effects, highly detailed, 8k, centered composition, dark mode interface',
+    model: 'runware:108@1',
+    width: 512,
+    height: 512
   }
 ];
 
