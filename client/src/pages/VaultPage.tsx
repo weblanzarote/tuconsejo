@@ -554,13 +554,31 @@ function NotificationsSection() {
       </div>
 
       <details className="text-xs text-muted-foreground">
-        <summary className="cursor-pointer hover:text-foreground">Cómo obtener tu chat_id</summary>
-        <ol className="list-decimal ml-5 mt-2 space-y-1">
-          <li>En Telegram, busca <strong>@BotFather</strong> y crea un bot con <code>/newbot</code>. Copia el <em>token</em> y pégalo en <code>.env</code> como <code>TELEGRAM_BOT_TOKEN</code>, luego reinicia el servidor.</li>
-          <li>Busca tu bot recién creado en Telegram y envíale cualquier mensaje (ej. <code>/start</code>).</li>
-          <li>Abre en el navegador <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> y copia el número <code>chat.id</code> que aparezca.</li>
-          <li>Pégalo abajo y pulsa <strong>Enviar prueba</strong>.</li>
+        <summary className="cursor-pointer hover:text-foreground">Solo quien instala o aloja la app (una vez)</summary>
+        <p className="mt-2 leading-relaxed">
+          El <strong>token del bot</strong> va en el servidor (<code>TELEGRAM_BOT_TOKEN</code> en <code>.env</code>), no aquí. Eso lo hace quien despliega Consejo Sinérgico: crea el bot con <strong>@BotFather</strong> (<code>/newbot</code>), guarda el token, reinicia el servidor y comunica a los usuarios el <strong>nombre del bot</strong> en Telegram (p. ej. <code>@TuBotOficial</code>).
+        </p>
+      </details>
+
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer hover:text-foreground">Cómo conectar tu Telegram (cada usuario)</summary>
+        <ol className="list-decimal ml-5 mt-2 space-y-1.5 leading-relaxed">
+          <li>
+            En Telegram, abre el <strong>bot de esta aplicación</strong> (te lo tiene que decir quien te dio acceso o quien administra el servidor).
+          </li>
+          <li>
+            Pulsa <strong>Iniciar</strong> o envía <code>/start</code> al bot. Así Telegram sabe que quieres recibir mensajes de él.
+          </li>
+          <li>
+            Copia tu <strong>ID numérico</strong>: la forma más sencilla es escribir a un bot público como <strong>@userinfobot</strong> y copiar el número que te muestra (en un chat privado contigo suele ser el mismo valor que hace falta como chat_id aquí).
+          </li>
+          <li>
+            Pégalo en <strong>Chat ID</strong> abajo, guarda, y prueba con <strong>Enviar prueba</strong>.
+          </li>
         </ol>
+        <p className="mt-2 text-[11px] opacity-90">
+          La URL <code>api.telegram.org/.../getUpdates</code> solo la usa quien tiene el token del bot (normalmente el administrador), no hace falta que cada usuario la abra.
+        </p>
       </details>
 
       <div className="space-y-1.5">
