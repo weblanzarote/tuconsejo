@@ -65,7 +65,7 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
       <aside
         className={cn(
           "fixed lg:relative z-50 flex flex-col h-full",
-          "glass-panel border-r-0 border-r-white/10",
+          "glass-panel bg-white/50 dark:bg-black/60 border-r-0 border-r-black/10 dark:border-r-white/10",
           "w-52 transition-transform duration-200 ease-in-out",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
@@ -164,7 +164,7 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
       {/* ── Contenido principal ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Header móvil */}
-        <header className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-white/10 glass-panel border-x-0 border-t-0 rounded-none">
+        <header className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-black/10 dark:border-white/10 glass-panel bg-white/50 dark:bg-black/60 border-x-0 border-t-0 rounded-none">
           <Button
             variant="ghost"
             size="icon"
