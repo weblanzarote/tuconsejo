@@ -3,7 +3,7 @@ import { formatYyyyMmDdInTimeZone } from "../dateTz";
 import { dispatchNotification, flushUserQueue } from "./dispatcher";
 
 const TICK_INTERVAL_MS = 60_000; // 1 min
-const INITIAL_DELAY_MS = 90_000; // 1.5 min tras arranque (después del AutoSync inicial)
+const INITIAL_DELAY_MS = 90_000; // 1.5 min tras arranque
 
 let running = false;
 
@@ -15,45 +15,54 @@ async function tick() {
     if (!all.length) return;
 
     const now = new Date();
-    const currentMinute = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
-    const nowMs = now.getTime();
 
     for (const s of all) {
       if (!s.enabled || !s.telegramChatId) continue;
 
-      // 1) Vaciar cola si toca (horario)
-      // "hourly" → al minuto 0 de cada hora. "daily" → a la hora configurada (timezone del usuario).
       const user = await getUserByIdSafe(s.userId);
       const tz = user?.timezone ?? "UTC";
-      const localToday = formatYyyyMmDdInTimeZone(now, tz);
-      const localHm = formatLocalHm(now, tz);
+      const { hh, mm, date: localDate } = getLocalHmD(now, tz);
+      const localHm = `${hh}:${mm}`;
+      const hour = parseInt(hh, 10);
+      const minute = parseInt(mm, 10);
 
-      const flushReasons: ("hourly" | "daily")[] = [];
-      if (s.emailFrequency === "hourly" && now.getMinutes() === 0) {
-        flushReasons.push("hourly");
-      }
-      if (
-        (s.emailFrequency === "daily" || s.taskFrequency === "daily") &&
-        localHm === s.dailyDigestTime &&
-        s.lastDailyDigestDate !== localToday
-      ) {
-        flushReasons.push("daily");
+      // ── Correos ───────────────────────────────────────────────────────────
+      //   instant → se envía al encolarse (dispatcher), aquí no hace falta nada.
+      //   hourly  → al minuto 0 de cada hora local.
+      //   daily   → a la hora local configurada (una vez al día).
+      const shouldFlushEmails =
+        (s.emailFrequency === "hourly" && minute === 0) ||
+        (s.emailFrequency === "daily" &&
+          localHm === s.dailyDigestTime &&
+          s.lastDailyDigestDate !== localDate);
+
+      // ── Tareas ────────────────────────────────────────────────────────────
+      //   hourly  → al minuto 0 de cada hora.
+      //   every4h → a las 0, 4, 8, 12, 16, 20 local (minuto 0).
+      //   every8h → a las 0, 8, 16 local (minuto 0).
+      //   daily   → a la hora del digest.
+      const shouldFlushTasks =
+        (s.taskFrequency === "hourly" && minute === 0) ||
+        (s.taskFrequency === "every4h" && minute === 0 && hour % 4 === 0) ||
+        (s.taskFrequency === "every8h" && minute === 0 && hour % 8 === 0) ||
+        (s.taskFrequency === "daily" &&
+          localHm === s.dailyDigestTime &&
+          s.lastDailyDigestDate !== localDate);
+
+      if (shouldFlushTasks) {
+        await enqueueTaskReminders(s.userId, tz, `${localDate}T${hh}`);
       }
 
-      // 2) Generar recordatorios de deadline para "daily": una vez al día, al hit de digest time
-      if (flushReasons.includes("daily")) {
-        await enqueueDailyTaskReminders(s.userId, tz);
-      }
-
-      if (flushReasons.length) {
+      if (shouldFlushEmails || shouldFlushTasks) {
         await flushUserQueue(s.userId);
-        if (flushReasons.includes("daily")) {
-          await upsertNotificationSettings(s.userId, { lastDailyDigestDate: localToday });
+        // Marcar el digest diario para no duplicarlo el mismo día
+        const dailyFired =
+          (s.emailFrequency === "daily" && localHm === s.dailyDigestTime) ||
+          (s.taskFrequency === "daily" && localHm === s.dailyDigestTime);
+        if (dailyFired && s.lastDailyDigestDate !== localDate) {
+          await upsertNotificationSettings(s.userId, { lastDailyDigestDate: localDate });
         }
       }
-      // silence unused-var warnings
-      void currentMinute;
-      void nowMs;
     }
   } catch (err: any) {
     console.error("[NotifScheduler] error:", err?.message ?? err);
@@ -62,7 +71,7 @@ async function tick() {
   }
 }
 
-async function enqueueDailyTaskReminders(userId: number, tz: string) {
+async function enqueueTaskReminders(userId: number, tz: string, cycleKey: string) {
   const items = await getActionItemsByUser(userId);
   const today = formatYyyyMmDdInTimeZone(new Date(), tz);
   for (const it of items) {
@@ -70,7 +79,6 @@ async function enqueueDailyTaskReminders(userId: number, tz: string) {
     if (it.isArchived) continue;
     if (!it.deadline) continue;
     const deadlineStr = formatYyyyMmDdInTimeZone(new Date(it.deadline), tz);
-    // Encolar si el deadline es hoy o ya pasó (sigue pendiente)
     if (deadlineStr <= today) {
       const overdue = deadlineStr < today;
       await dispatchNotification({
@@ -79,26 +87,34 @@ async function enqueueDailyTaskReminders(userId: number, tz: string) {
         title: it.title,
         body: overdue ? `vencía ${deadlineStr}` : "vence hoy",
         refId: it.id,
-        // 1 aviso por tarea por día
-        dedupeKey: `task_due:${it.id}:${today}`,
+        // Un aviso por tarea y por ciclo (hora local YYYY-MM-DDTHH)
+        dedupeKey: `task_due:${it.id}:${cycleKey}`,
       });
     }
   }
 }
 
-function formatLocalHm(date: Date, tz: string): string {
+function getLocalHmD(date: Date, tz: string): { hh: string; mm: string; date: string } {
   try {
-    const parts = new Intl.DateTimeFormat("en-GB", {
+    const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone: tz || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     }).formatToParts(date);
+    const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+    const mo = parts.find((p) => p.type === "month")?.value ?? "01";
+    const d = parts.find((p) => p.type === "day")?.value ?? "01";
     const h = parts.find((p) => p.type === "hour")?.value ?? "00";
-    const m = parts.find((p) => p.type === "minute")?.value ?? "00";
-    return `${h}:${m}`;
+    const mi = parts.find((p) => p.type === "minute")?.value ?? "00";
+    // Intl a veces devuelve "24" en vez de "00" para medianoche
+    const hhNorm = h === "24" ? "00" : h;
+    return { hh: hhNorm, mm: mi, date: `${y}-${mo}-${d}` };
   } catch {
-    return "00:00";
+    return { hh: "00", mm: "00", date: "1970-01-01" };
   }
 }
 

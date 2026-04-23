@@ -321,9 +321,11 @@ export const notificationSettings = sqliteTable("notification_settings", {
   })
     .default("instant")
     .notNull(),
-  /** Frecuencia para tareas (creación / recordatorios de deadline): instant | daily | off */
-  taskFrequency: text("taskFrequency", { enum: ["instant", "daily", "off"] })
-    .default("instant")
+  /** Frecuencia para recordatorios de tareas pendientes (deadline hoy o vencido) */
+  taskFrequency: text("taskFrequency", {
+    enum: ["hourly", "every4h", "every8h", "daily", "off"],
+  })
+    .default("daily")
     .notNull(),
   /** Hora local para el resumen diario, HH:MM (usa la timezone del usuario) */
   dailyDigestTime: text("dailyDigestTime").default("09:00").notNull(),

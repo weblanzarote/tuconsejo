@@ -495,17 +495,23 @@ function NotificationsSection() {
     onError: (err) => toast.error(err.message),
   });
 
+  type EmailFreq = "instant" | "hourly" | "daily" | "off";
+  type TaskFreq = "hourly" | "every4h" | "every8h" | "daily" | "off";
+
   const [chatId, setChatId] = useState("");
-  const [emailFreq, setEmailFreq] = useState<"instant" | "hourly" | "daily" | "off">("instant");
-  const [taskFreq, setTaskFreq] = useState<"instant" | "daily" | "off">("instant");
+  const [emailFreq, setEmailFreq] = useState<EmailFreq>("instant");
+  const [taskFreq, setTaskFreq] = useState<TaskFreq>("daily");
   const [dailyTime, setDailyTime] = useState("09:00");
   const [enabled, setEnabled] = useState(true);
 
   useEffect(() => {
     if (!data) return;
     setChatId(data.telegramChatId ?? "");
-    setEmailFreq(data.emailFrequency as typeof emailFreq);
-    setTaskFreq(data.taskFrequency as typeof taskFreq);
+    setEmailFreq(data.emailFrequency as EmailFreq);
+    // Backwards-compat: valores antiguos ("instant") se mapean a "daily".
+    const tf = data.taskFrequency as string;
+    const validTaskFreqs: TaskFreq[] = ["hourly", "every4h", "every8h", "daily", "off"];
+    setTaskFreq((validTaskFreqs as string[]).includes(tf) ? (tf as TaskFreq) : "daily");
     setDailyTime(data.dailyDigestTime ?? "09:00");
     setEnabled(Boolean(data.enabled));
   }, [data]);
@@ -588,7 +594,7 @@ function NotificationsSection() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Correos importantes</Label>
-          <Select value={emailFreq} onValueChange={(v) => setEmailFreq(v as typeof emailFreq)}>
+          <Select value={emailFreq} onValueChange={(v) => setEmailFreq(v as EmailFreq)}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -602,14 +608,16 @@ function NotificationsSection() {
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Tareas (altas + recordatorios)</Label>
-          <Select value={taskFreq} onValueChange={(v) => setTaskFreq(v as typeof taskFreq)}>
+          <Label className="text-xs text-muted-foreground">Recordatorios de tareas pendientes</Label>
+          <Select value={taskFreq} onValueChange={(v) => setTaskFreq(v as TaskFreq)}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="instant">Al momento</SelectItem>
-              <SelectItem value="daily">Resumen diario</SelectItem>
+              <SelectItem value="hourly">Cada hora</SelectItem>
+              <SelectItem value="every4h">Cada 4 horas</SelectItem>
+              <SelectItem value="every8h">Cada 8 horas</SelectItem>
+              <SelectItem value="daily">Una vez al día</SelectItem>
               <SelectItem value="off">No notificar</SelectItem>
             </SelectContent>
           </Select>

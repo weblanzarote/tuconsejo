@@ -8,7 +8,7 @@ import { AGENT_LIST, buildCheckinPrompt, buildSystemPrompt, getAgentById, type A
 import { parseCaixaBankMovimientosXls } from "./bankImport/caixaXls";
 import { buildAdvisorApuntesContext } from "./apuntesContext";
 import { loadFinanceAdvisorBlock } from "./financeContext";
-import { dispatchNotification, flushUserQueue } from "./notifications/dispatcher";
+import { flushUserQueue } from "./notifications/dispatcher";
 import { sendTelegramMessage, escapeTelegramHtml } from "./notifications/telegram";
 import { getNotificationSettings, upsertNotificationSettings, DEFAULT_NOTIFICATION_SETTINGS } from "./db";
 import {
@@ -378,7 +378,7 @@ const actionPlanRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const deadline = input.deadline ? new Date(input.deadline) : undefined;
-      const created = await insertActionItem({
+      return insertActionItem({
         userId: ctx.user.id,
         agentId: input.agentId as AgentId,
         title: input.title,
@@ -391,18 +391,6 @@ const actionPlanRouter = router({
         sourceMessageId: input.sourceMessageId,
         tipo: input.tipo ?? "tarea",
       });
-      // Notifica solo tareas de alta prioridad al crearse para no saturar.
-      if ((input.priority ?? "media") === "alta" && (input.tipo ?? "tarea") === "tarea") {
-        await dispatchNotification({
-          userId: ctx.user.id,
-          kind: "task_new",
-          title: input.title,
-          body: deadline ? `deadline ${deadline.toISOString().slice(0, 10)}` : "",
-          refId: created.id,
-          dedupeKey: `task_new:${created.id}`,
-        });
-      }
-      return created;
     }),
 
   updateStatus: protectedProcedure
@@ -1498,7 +1486,7 @@ const notificationsRouter = router({
         telegramChatId: z.string().trim().max(64).nullable().optional(),
         enabled: z.boolean().optional(),
         emailFrequency: z.enum(["instant", "hourly", "daily", "off"]).optional(),
-        taskFrequency: z.enum(["instant", "daily", "off"]).optional(),
+        taskFrequency: z.enum(["hourly", "every4h", "every8h", "daily", "off"]).optional(),
         dailyDigestTime: z
           .string()
           .regex(/^\d{2}:\d{2}$/, "Formato HH:MM")

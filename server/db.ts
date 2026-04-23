@@ -281,6 +281,9 @@ export function initializeDatabase() {
     )`,
     `CREATE INDEX IF NOT EXISTS notification_queue_user_status ON notification_queue(userId, status)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS notification_queue_dedupe ON notification_queue(userId, dedupeKey) WHERE dedupeKey IS NOT NULL`,
+    // Migración: el antiguo valor "instant" ya no es válido para tareas (el usuario
+    // crea las tareas a mano, no necesita ping al crearlas). Se pasan a "daily".
+    `UPDATE notification_settings SET taskFrequency = 'daily' WHERE taskFrequency = 'instant'`,
   ];
   for (const migration of migrations) {
     try { sqlite.exec(migration); } catch (_) { /* columna ya existe */ }
@@ -1216,7 +1219,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS = {
   telegramChatId: null as string | null,
   enabled: true,
   emailFrequency: "instant" as const,
-  taskFrequency: "instant" as const,
+  taskFrequency: "daily" as const,
   dailyDigestTime: "09:00",
   lastDailyDigestDate: null as string | null,
 };
