@@ -133,9 +133,9 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="dark">
-        {/* Fondo global oscuro difuminado */}
-        <div className="fixed inset-0 z-[-1] bg-[url('/assets/background-dark.webp')] bg-cover bg-center bg-no-repeat opacity-40" />
+      <ThemeProvider defaultTheme="dark" switchable={true}>
+        {/* Fondo global dinámico */}
+        <div className="fixed inset-0 z-[-1] bg-[url('/assets/background-light.png')] dark:bg-[url('/assets/background-dark.webp')] bg-cover bg-center bg-no-repeat opacity-60 dark:opacity-40" />
 
         <TooltipProvider>
           <Toaster />

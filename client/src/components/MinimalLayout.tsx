@@ -12,9 +12,12 @@ import {
   ChevronRight,
   Download,
   Wallet,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState } from "react";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Link, useLocation } from "wouter";
 import { Button } from "./ui/button";
 import CommandPalette from "./CommandPalette";
@@ -34,6 +37,7 @@ interface MinimalLayoutProps {
 export default function MinimalLayout({ children }: MinimalLayoutProps) {
   const [location, navigate] = useLocation();
   const { user, logout } = useLocalAuth();
+  const { theme, toggleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { canInstall, isInstalled, install } = useInstallPrompt();
   const { data: pendingData } = trpc.signals.pendingCount.useQuery(undefined, {
@@ -107,6 +111,24 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
 
         {/* Perfil */}
         <div className="border-t border-sidebar-border p-3 space-y-1">
+          {toggleTheme && (
+            <button
+              onClick={toggleTheme}
+              className="flex items-center gap-2 px-3 py-1.5 w-full rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors cursor-pointer"
+            >
+              {theme === "dark" ? (
+                <>
+                  <Sun className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Modo claro</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Modo oscuro</span>
+                </>
+              )}
+            </button>
+          )}
           <button
             onClick={() => { navigate("/perfil"); setMobileOpen(false); }}
             className="flex items-center gap-2.5 px-3 py-1.5 min-w-0 w-full rounded-md hover:bg-accent/60 transition-colors cursor-pointer group"

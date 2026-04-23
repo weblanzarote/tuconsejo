@@ -42,18 +42,66 @@
 
 :root {
   --radius: 0.75rem;
+  /* Paleta Light Premium Glassmorphism */
+  --background: #FAFAFA;
+  --foreground: #101010;
+  
+  /* Cards translúcidas claras */
+  --card: rgba(255, 255, 255, 0.7);
+  --card-foreground: #101010;
+  
+  --popover: rgba(255, 255, 255, 0.8);
+  --popover-foreground: #101010;
+  
+  /* Acentos (mantener morado o algo similar pero para fondo claro) */
+  --primary: #8A52FF;
+  --primary-foreground: #FFFFFF;
+  
+  --secondary: rgba(0, 0, 0, 0.05);
+  --secondary-foreground: #101010;
+  
+  --muted: rgba(0, 0, 0, 0.05);
+  --muted-foreground: #606060;
+  
+  --accent: rgba(162, 119, 255, 0.1);
+  --accent-foreground: #8A52FF;
+  
+  --destructive: #E03131;
+  --destructive-foreground: #FFFFFF;
+  
+  /* Bordes semi-transparentes para el cristal claro */
+  --border: rgba(0, 0, 0, 0.1);
+  --input: rgba(0, 0, 0, 0.05);
+  --ring: rgba(162, 119, 255, 0.4);
+  
+  --chart-1: #8A52FF;
+  --chart-2: #22A3BB;
+  --chart-3: #E86B40;
+  --chart-4: #D8638A;
+  --chart-5: #AAB948;
+  
+  /* Sidebar translúcido claro */
+  --sidebar: rgba(255, 255, 255, 0.7);
+  --sidebar-foreground: #101010;
+  --sidebar-primary: #8A52FF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: rgba(0, 0, 0, 0.05);
+  --sidebar-accent-foreground: #101010;
+  --sidebar-border: rgba(0, 0, 0, 0.1);
+  --sidebar-ring: rgba(162, 119, 255, 0.4);
+}
+
+.dark {
   /* Paleta Dark Premium Glassmorphism */
   --background: #000000;
   --foreground: #F5F5F5;
   
-  /* Cards translúcidas en lugar de color sólido */
   --card: rgba(20, 20, 20, 0.4);
   --card-foreground: #F5F5F5;
   
   --popover: rgba(20, 20, 20, 0.6);
   --popover-foreground: #F5F5F5;
   
-  /* Acentos vibrantes / Neón sutil */
   --primary: #A277FF;
   --primary-foreground: #FFFFFF;
   
@@ -69,7 +117,6 @@
   --destructive: #FF4A4A;
   --destructive-foreground: #FFFFFF;
   
-  /* Bordes semi-transparentes para el cristal */
   --border: rgba(255, 255, 255, 0.1);
   --input: rgba(255, 255, 255, 0.05);
   --ring: rgba(162, 119, 255, 0.4);
@@ -80,7 +127,6 @@
   --chart-4: #F48FB1;
   --chart-5: #E6EE9C;
   
-  /* Sidebar translúcido */
   --sidebar: rgba(10, 10, 10, 0.6);
   --sidebar-foreground: #F5F5F5;
   --sidebar-primary: #A277FF;
@@ -94,10 +140,10 @@
 /* ─── Glassmorphism Utilities ─── */
 @layer utilities {
   .glass-panel {
-    @apply bg-black/30 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)];
+    @apply bg-white/40 dark:bg-black/30 backdrop-blur-xl border border-black/10 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)];
   }
   .glass-surface {
-    @apply bg-white/5 backdrop-blur-md border border-white/5;
+    @apply bg-white/40 dark:bg-white/5 backdrop-blur-md border border-black/5 dark:border-white/5;
   }
 }
 
@@ -192,16 +238,16 @@
 
 /* ─── Chat / Diary Markdown ───────────────────────────────────────────────── */
 .chat-markdown {
-  @apply bg-black/40 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.4)];
+  @apply bg-white/50 dark:bg-black/40 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-black/10 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)];
 }
-.chat-markdown p { margin-bottom: 0.75rem; color: rgba(255, 255, 255, 0.9); }
-.chat-markdown ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; color: rgba(255, 255, 255, 0.9); }
-.chat-markdown ol { list-style: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; color: rgba(255, 255, 255, 0.9); }
-.chat-markdown strong { font-weight: 600; color: #FFFFFF; }
-.chat-markdown h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 0.75rem; font-family: "Inter", sans-serif; color: #FFFFFF; }
-.chat-markdown code { background: rgba(255, 255, 255, 0.1); padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.8rem; font-family: "JetBrains Mono", monospace; color: #FFFFFF; }
-.chat-markdown pre { background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; }
-.chat-markdown blockquote { border-left: 2px solid #A277FF; padding-left: 0.75rem; font-style: italic; color: #A0A0A0; }
+.chat-markdown p { margin-bottom: 0.75rem; @apply text-gray-800 dark:text-white/90; }
+.chat-markdown ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; @apply text-gray-800 dark:text-white/90; }
+.chat-markdown ol { list-style: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; @apply text-gray-800 dark:text-white/90; }
+.chat-markdown strong { font-weight: 600; @apply text-gray-900 dark:text-white; }
+.chat-markdown h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; margin-top: 0.75rem; font-family: "Inter", sans-serif; @apply text-gray-900 dark:text-white; }
+.chat-markdown code { @apply bg-black/5 dark:bg-white/10 text-gray-900 dark:text-white; padding: 0.125rem 0.375rem; border-radius: 0.25rem; font-size: 0.8rem; font-family: "JetBrains Mono", monospace; }
+.chat-markdown pre { @apply bg-black/5 dark:bg-black/40 border border-black/10 dark:border-white/10; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 0.75rem; }
+.chat-markdown blockquote { border-left: 2px solid #A277FF; padding-left: 0.75rem; font-style: italic; @apply text-gray-600 dark:text-gray-400; }
 .chat-markdown a { color: #A277FF; text-decoration: underline; text-underline-offset: 2px; }
 
 /* ─── Tablas Responsivas ─────────────────────────────────────────────────── */
@@ -213,9 +259,8 @@
   white-space: nowrap;
 }
 .chat-markdown th, .chat-markdown td {
-  @apply border border-white/10 px-4 py-3;
-  color: rgba(255, 255, 255, 0.9);
+  @apply border border-black/10 dark:border-white/10 px-4 py-3 text-gray-800 dark:text-white/90;
 }
 .chat-markdown th {
-  @apply bg-white/5 font-semibold text-white;
+  @apply bg-black/5 dark:bg-white/5 font-semibold text-gray-900 dark:text-white;
 }
