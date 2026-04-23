@@ -3,7 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { ThemeProvider } from "./contexts/ThemeContext";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { useLocalAuth } from "./hooks/useLocalAuth";
 import { Loader2 } from "lucide-react";
 // Páginas
@@ -130,12 +130,24 @@ function Router() {
   );
 }
 
+function BackgroundLayer() {
+  const { theme } = useTheme();
+  return (
+    <div 
+      className="fixed inset-0 z-[-1] bg-cover bg-center bg-no-repeat transition-opacity duration-500 ease-in-out"
+      style={{ 
+        backgroundImage: `url('/assets/background-${theme === 'dark' ? 'dark.webp' : 'light.png'}')`,
+        opacity: theme === 'dark' ? 0.4 : 0.6
+      }} 
+    />
+  );
+}
+
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark" switchable={true}>
-        {/* Fondo global dinámico */}
-        <div className="fixed inset-0 z-[-1] bg-[url('/assets/background-light.png')] dark:bg-[url('/assets/background-dark.webp')] bg-cover bg-center bg-no-repeat opacity-60 dark:opacity-40" />
+        <BackgroundLayer />
 
         <TooltipProvider>
           <Toaster />
