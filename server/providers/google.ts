@@ -79,17 +79,23 @@ function extractTextParts(payload: any): string {
 export const googleProvider: MailProvider = {
   async fetchRecent(integration, maxResults = 30) {
     const token = await getAccessToken(integration);
-    const params = new URLSearchParams({
-      maxResults: String(maxResults),
-      q: "in:inbox -category:promotions -category:social",
-    });
-    const res = await fetch(`${GMAIL_BASE}/messages?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(`[Gmail] fetchRecent: ${res.status}`);
-    const data = await res.json();
-    const messages: Array<{ id: string; threadId: string }> = (data as any).messages ?? [];
-    return messages.map((m) => ({ providerMessageId: m.id, threadId: m.threadId })) as MessageMeta[];
+    const listWithQuery = async (q: string): Promise<MessageMeta[]> => {
+      const params = new URLSearchParams({ maxResults: String(maxResults), q });
+      const res = await fetch(`${GMAIL_BASE}/messages?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`[Gmail] fetchRecent: ${res.status}`);
+      const data = await res.json();
+      const messages: Array<{ id: string; threadId: string }> = (data as any).messages ?? [];
+      return messages.map((m) => ({ providerMessageId: m.id, threadId: m.threadId })) as MessageMeta[];
+    };
+    /** Inbox completa (incl. pestañas Promociones/Social: el filtro antiguo dejaba fuera mucho correo personal). */
+    let out = await listWithQuery("in:inbox");
+    /** Si la bandeja está vacía por filtros (“saltar bandeja”), traer recientes de los últimos 14 días. */
+    if (out.length === 0) {
+      out = await listWithQuery("newer_than:14d -in:spam -in:trash -in:drafts");
+    }
+    return out.slice(0, maxResults);
   },
 
   async fetchDetail(integration, messageId) {

@@ -857,6 +857,10 @@ export default function CorreosPage() {
       await utils.signals.pendingCount.invalidate();
       const nImp = data.newSignals ?? 0;
       const nReg = data.newRegistry ?? 0;
+      const errs = data.errors ?? [];
+      if (errs.length > 0) {
+        toast.error(`Problema al sincronizar una cuenta: ${errs[0]}${errs.length > 1 ? ` (+${errs.length - 1})` : ""}`);
+      }
       if (nImp > 0 || nReg > 0) {
         const parts: string[] = [];
         if (nImp > 0) {
@@ -866,7 +870,7 @@ export default function CorreosPage() {
           parts.push(`${nReg} en el registro secundario`);
         }
         toast.success(parts.join(" · "));
-      } else {
+      } else if (errs.length === 0) {
         toast("Sin novedades en el correo");
       }
     },

@@ -56,7 +56,14 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
         messageList.slice(0, 30).map((m) => provider.fetchDetail(integration, m.providerMessageId).catch(() => null))
       );
       const validDetails = details.filter(Boolean) as NonNullable<typeof details[0]>[];
-      if (!validDetails.length) continue;
+      if (!validDetails.length) {
+        if (messageList.length > 0) {
+          errors.push(
+            `${integration.provider}/${integration.connectedEmail}: Se listaron ${messageList.length} mensajes pero no se pudieron leer los detalles (token o permisos).`
+          );
+        }
+        continue;
+      }
       totalSynced += validDetails.length;
 
       const mergedPrefs = mergeEmailFilterPrefs(userEmailPrefs, integration.emailFilterPrefs);
