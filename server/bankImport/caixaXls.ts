@@ -1,6 +1,11 @@
 import * as XLSX from "xlsx";
 import { TRPCError } from "@trpc/server";
 
+// En ESM, `XLSX.SSF` no queda expuesto por el interop CJS→ESM de Node;
+// sólo es accesible vía `XLSX.default.SSF`. Resolvemos ambos casos.
+const SSF: typeof XLSX.SSF =
+  (XLSX as any).SSF ?? (XLSX as any).default?.SSF;
+
 export type ParsedBankMovement = {
   bookedDate: string;
   valueDate: string;
@@ -25,7 +30,7 @@ export function excelSerialToIsoDate(serial: unknown): string | null {
   if (typeof serial !== "number" || !Number.isFinite(serial) || serial < 20000 || serial > 80000) {
     return null;
   }
-  const p = XLSX.SSF.parse_date_code(serial);
+  const p = SSF.parse_date_code(serial);
   if (!p || !p.y) return null;
   return `${p.y}-${pad2(p.m)}-${pad2(p.d)}`;
 }
