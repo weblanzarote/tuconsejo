@@ -497,7 +497,7 @@ function NotificationsSection() {
     onError: (err) => toast.error(err.message),
   });
 
-  type EmailFreq = "instant" | "hourly" | "daily" | "off";
+  type EmailFreq = "instant" | "off";
   type TaskFreq = "hourly" | "every4h" | "every8h" | "daily" | "off";
 
   const [chatId, setChatId] = useState("");
@@ -515,7 +515,8 @@ function NotificationsSection() {
   useEffect(() => {
     if (!data) return;
     setChatId(data.telegramChatId ?? "");
-    setEmailFreq(data.emailFrequency as EmailFreq);
+    const ef = data.emailFrequency as string;
+    setEmailFreq(ef === "off" ? "off" : "instant");
     // Backwards-compat: valores antiguos ("instant") se mapean a "daily".
     const tf = data.taskFrequency as string;
     const validTaskFreqs: TaskFreq[] = ["hourly", "every4h", "every8h", "daily", "off"];
@@ -550,7 +551,7 @@ function NotificationsSection() {
             <Bell className="h-4 w-4" /> Notificaciones (Telegram)
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Recibe avisos en Telegram cuando llegue un correo importante o haya tareas pendientes.
+            Los correos importantes se envían en cuanto el servidor los detecta al sincronizar el buzón. Los recordatorios de tareas siguen la frecuencia que elijas abajo.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -633,18 +634,19 @@ function NotificationsSection() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Correos importantes</Label>
+          <Label className="text-xs text-muted-foreground">Correos importantes (Telegram)</Label>
           <Select value={emailFreq} onValueChange={(v) => setEmailFreq(v as EmailFreq)}>
             <SelectTrigger className="w-full h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="instant">Al momento</SelectItem>
-              <SelectItem value="hourly">Resumen cada hora</SelectItem>
-              <SelectItem value="daily">Resumen diario</SelectItem>
+              <SelectItem value="instant">Sí, avisar en cuanto se detecten</SelectItem>
               <SelectItem value="off">No notificar</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-[11px] text-muted-foreground">
+            La revisión del buzón la hace el servidor cada pocos minutos si tienes la sincronización automática activa en Correos.
+          </p>
         </div>
 
         <div className="space-y-1.5">
@@ -664,7 +666,7 @@ function NotificationsSection() {
         </div>
       </div>
 
-      {(emailFreq === "daily" || taskFreq === "daily") && (
+      {taskFreq === "daily" && (
         <div className="space-y-1.5">
           <Label htmlFor="digest-time" className="text-xs text-muted-foreground">
             Hora del resumen diario (tu zona horaria)

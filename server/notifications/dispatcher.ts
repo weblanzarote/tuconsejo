@@ -11,8 +11,8 @@ import { escapeTelegramHtml, sendTelegramMessage } from "./telegram";
 type NotifKind = NotificationQueueRow["kind"];
 
 /**
- * Encola una notificación. Si el usuario la tiene en modo "instant", se intenta enviar en el acto;
- * si está en "hourly" / "daily" / "off", queda en la cola para que el scheduler la procese.
+ * Encola una notificación. Los correos importantes se envían al instante; las tareas respetan
+ * taskFrequency y el scheduler. Modo "off" no encola.
  *
  * Se llama desde los puntos de evento (nuevo correo importante, nueva tarea, recordatorio de
  * deadline). No lanza — los fallos se registran pero no rompen la operación original.
@@ -41,6 +41,12 @@ export async function dispatchNotification(params: {
       dedupeKey: params.dedupeKey,
     });
     if (!row) return; // dedupe: ya existía
+
+    // Correo importante: siempre Telegram en el acto (justo tras la sincronización que lo detectó).
+    if (params.kind === "email") {
+      await flushUserQueue(params.userId, ["email"]);
+      return;
+    }
 
     if (freq === "instant") {
       await flushUserQueue(params.userId);

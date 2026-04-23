@@ -752,7 +752,7 @@ function AutoSyncToggle() {
       <div className="min-w-0 pr-3">
         <p className="text-foreground">Sincronización automática</p>
         <p className="text-muted-foreground mt-0.5">
-          Revisa tus cuentas cada 15 min y trae correos importantes nuevos.
+          Revisa tus cuentas cada {data?.intervalMinutes ?? 5} min (ajustable en el servidor con AUTO_SYNC_INTERVAL_MIN) y trae correos importantes nuevos.
         </p>
       </div>
       <button

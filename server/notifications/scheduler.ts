@@ -27,9 +27,8 @@ async function tick() {
       const minute = parseInt(mm, 10);
 
       // ── Correos ───────────────────────────────────────────────────────────
-      //   instant → se envía al encolarse (dispatcher), aquí no hace falta nada.
-      //   hourly  → al minuto 0 de cada hora local.
-      //   daily   → a la hora local configurada (una vez al día).
+      //   Los importantes se vacían al encolarse (dispatcher). hourly/daily solo
+      //   cubren avisos antiguos pendientes o fallos puntuales.
       const shouldFlushEmails =
         (s.emailFrequency === "hourly" && minute === 0) ||
         (s.emailFrequency === "daily" &&

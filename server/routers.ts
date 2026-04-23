@@ -5,6 +5,7 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { AGENT_LIST, buildCheckinPrompt, buildSystemPrompt, getAgentById, type AgentId } from "./agents";
+import { getAutoSyncIntervalMinutes } from "./autoSyncConfig";
 import { parseCaixaBankMovimientosXls } from "./bankImport/caixaXls";
 import { buildAdvisorApuntesContext } from "./apuntesContext";
 import { loadFinanceAdvisorBlock } from "./financeContext";
@@ -977,7 +978,7 @@ const signalsRouter = router({
   // Estado del auto-sync global del usuario
   getAutoSync: protectedProcedure.query(async ({ ctx }) => {
     const u = await getUserById(ctx.user.id);
-    return { enabled: u?.autoSyncEnabled ?? true };
+    return { enabled: u?.autoSyncEnabled ?? true, intervalMinutes: getAutoSyncIntervalMinutes() };
   }),
 
   // Activar / desactivar auto-sync para este usuario

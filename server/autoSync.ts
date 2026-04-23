@@ -1,7 +1,7 @@
 import { getAutoSyncUserIds, getIntegrationsByUser } from "./db";
+import { getAutoSyncIntervalMinutes } from "./autoSyncConfig";
 import { syncUserEmails } from "./emailSync";
 
-const DEFAULT_INTERVAL_MIN = parseInt(process.env.AUTO_SYNC_INTERVAL_MIN ?? "15", 10);
 const INITIAL_DELAY_MS = 60_000; // 1 min después del arranque
 
 let running = false;
@@ -41,7 +41,7 @@ async function runOnce() {
 }
 
 export function startAutoSyncScheduler() {
-  const intervalMin = Math.max(5, DEFAULT_INTERVAL_MIN);
+  const intervalMin = getAutoSyncIntervalMinutes();
   const intervalMs = intervalMin * 60 * 1000;
   console.log(`[AutoSync] Programado cada ${intervalMin} min`);
 

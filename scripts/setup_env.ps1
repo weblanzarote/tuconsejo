@@ -46,6 +46,9 @@ OPENAI_API_KEY=$openai
 # GOOGLE_REDIRECT_URI=https://tuconsejo.app/api/auth/google/callback
 # MICROSOFT_REDIRECT_URI=https://tuconsejo.app/api/auth/microsoft/callback
 
+# Sincronización automática de correos (minutos entre revisiones; mínimo 5)
+# AUTO_SYNC_INTERVAL_MIN=5
+
 # Opcionales Manus / Forge (si los usas)
 # VITE_APP_ID=
 # OAUTH_SERVER_URL=
