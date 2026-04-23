@@ -309,3 +309,57 @@ export const bankImportState = sqliteTable("bank_import_state", {
 });
 
 export type BankImportState = typeof bankImportState.$inferSelect;
+
+// ─── Ajustes de Notificaciones (Telegram) ────────────────────────────────────
+export const notificationSettings = sqliteTable("notification_settings", {
+  userId: integer("userId").primaryKey(),
+  telegramChatId: text("telegramChatId"),
+  enabled: integer("enabled", { mode: "boolean" }).default(true).notNull(),
+  /** Frecuencia para correos importantes: instant | hourly | daily | off */
+  emailFrequency: text("emailFrequency", {
+    enum: ["instant", "hourly", "daily", "off"],
+  })
+    .default("instant")
+    .notNull(),
+  /** Frecuencia para tareas (creación / recordatorios de deadline): instant | daily | off */
+  taskFrequency: text("taskFrequency", { enum: ["instant", "daily", "off"] })
+    .default("instant")
+    .notNull(),
+  /** Hora local para el resumen diario, HH:MM (usa la timezone del usuario) */
+  dailyDigestTime: text("dailyDigestTime").default("09:00").notNull(),
+  /** Marca ISO YYYY-MM-DD del último día en que se envió el resumen, para no duplicar */
+  lastDailyDigestDate: text("lastDailyDigestDate"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .default(sql`(unixepoch() * 1000)`)
+    .notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
+    .default(sql`(unixepoch() * 1000)`)
+    .notNull(),
+});
+
+export type NotificationSettings = typeof notificationSettings.$inferSelect;
+export type InsertNotificationSettings = typeof notificationSettings.$inferInsert;
+
+// ─── Cola de notificaciones pendientes (para batching por frecuencia) ────────
+export const notificationQueue = sqliteTable("notification_queue", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("userId").notNull(),
+  kind: text("kind", { enum: ["email", "task_new", "task_due"] }).notNull(),
+  title: text("title").notNull().default(""),
+  body: text("body").notNull().default(""),
+  /** Referencia opcional al objeto origen (p. ej. emailSignals.id o actionItems.id) */
+  refId: integer("refId"),
+  /** Clave de deduplicación para evitar enviar dos veces el mismo recordatorio */
+  dedupeKey: text("dedupeKey"),
+  status: text("status", { enum: ["pending", "sent", "failed"] })
+    .default("pending")
+    .notNull(),
+  sentAt: integer("sentAt", { mode: "timestamp_ms" }),
+  lastError: text("lastError"),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .default(sql`(unixepoch() * 1000)`)
+    .notNull(),
+});
+
+export type NotificationQueueRow = typeof notificationQueue.$inferSelect;
+export type InsertNotificationQueueRow = typeof notificationQueue.$inferInsert;

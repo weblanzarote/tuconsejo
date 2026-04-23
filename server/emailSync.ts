@@ -6,6 +6,7 @@ import {
   insertEmailSignal,
 } from "./db";
 import { extractIgnoredSenderEmails, mergeEmailFilterPrefs } from "./emailFilterPrefs";
+import { dispatchNotification } from "./notifications/dispatcher";
 import { getProvider } from "./providers";
 
 export interface SyncResult {
@@ -118,7 +119,17 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
           receivedAt: detail.receivedAt,
           status: "pending",
         });
-        if (inserted) totalNew++;
+        if (inserted) {
+          totalNew++;
+          await dispatchNotification({
+            userId,
+            kind: "email",
+            title: detail.subject || "(sin asunto)",
+            body: `de ${detail.fromName || detail.fromAddress}`,
+            refId: inserted.id,
+            dedupeKey: `email:${inserted.id}`,
+          });
+        }
       }
     } catch (err: any) {
       errors.push(`${integration.provider}/${integration.connectedEmail}: ${err?.message ?? err}`);

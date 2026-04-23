@@ -17,6 +17,8 @@ import {
   bankImportState,
   userIntegrations,
   emailSignals,
+  notificationSettings,
+  notificationQueue,
   type InsertUser,
   type InsertVault,
   type InsertConversation,
@@ -26,6 +28,10 @@ import {
   type InsertDiaryEntry,
   type InsertNote,
   type InsertEmailSignal,
+  type NotificationSettings,
+  type InsertNotificationSettings,
+  type NotificationQueueRow,
+  type InsertNotificationQueueRow,
 } from "../drizzle/schema";
 
 // ─── Inicialización de la base de datos SQLite ────────────────────────────────
@@ -249,6 +255,32 @@ export function initializeDatabase() {
       lastImportedAt INTEGER NOT NULL,
       movementCount INTEGER NOT NULL DEFAULT 0
     )`,
+    `CREATE TABLE IF NOT EXISTS notification_settings (
+      userId INTEGER PRIMARY KEY,
+      telegramChatId TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      emailFrequency TEXT NOT NULL DEFAULT 'instant',
+      taskFrequency TEXT NOT NULL DEFAULT 'instant',
+      dailyDigestTime TEXT NOT NULL DEFAULT '09:00',
+      lastDailyDigestDate TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    )`,
+    `CREATE TABLE IF NOT EXISTS notification_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      refId INTEGER,
+      dedupeKey TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sentAt INTEGER,
+      lastError TEXT,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    )`,
+    `CREATE INDEX IF NOT EXISTS notification_queue_user_status ON notification_queue(userId, status)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS notification_queue_dedupe ON notification_queue(userId, dedupeKey) WHERE dedupeKey IS NOT NULL`,
   ];
   for (const migration of migrations) {
     try { sqlite.exec(migration); } catch (_) { /* columna ya existe */ }
@@ -1177,6 +1209,94 @@ export async function getRecentClassifierFeedbackExamples(userId: number, limit 
     .where(and(eq(emailSignals.userId, userId), isNotNull(emailSignals.classifierUserFeedback)))
     .orderBy(desc(emailSignals.updatedAt))
     .limit(limit);
+}
+
+// ─── Helpers de Notificaciones ────────────────────────────────────────────────
+export const DEFAULT_NOTIFICATION_SETTINGS = {
+  telegramChatId: null as string | null,
+  enabled: true,
+  emailFrequency: "instant" as const,
+  taskFrequency: "instant" as const,
+  dailyDigestTime: "09:00",
+  lastDailyDigestDate: null as string | null,
+};
+
+export async function getNotificationSettings(userId: number): Promise<NotificationSettings | null> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(notificationSettings)
+    .where(eq(notificationSettings.userId, userId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertNotificationSettings(
+  userId: number,
+  data: Partial<Omit<InsertNotificationSettings, "userId" | "createdAt" | "updatedAt">>
+) {
+  const db = getDb();
+  const existing = await getNotificationSettings(userId);
+  if (existing) {
+    await db
+      .update(notificationSettings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(notificationSettings.userId, userId));
+  } else {
+    await db.insert(notificationSettings).values({ userId, ...data });
+  }
+  return (await getNotificationSettings(userId))!;
+}
+
+export async function listNotificationSettings(): Promise<NotificationSettings[]> {
+  const db = getDb();
+  return db.select().from(notificationSettings);
+}
+
+export async function enqueueNotification(
+  data: Omit<InsertNotificationQueueRow, "status" | "createdAt">
+): Promise<NotificationQueueRow | null> {
+  const db = getDb();
+  try {
+    const result = await db
+      .insert(notificationQueue)
+      .values({ ...data, status: "pending" })
+      .returning();
+    return result[0] ?? null;
+  } catch {
+    // UNIQUE violation por dedupeKey → ya encolado
+    return null;
+  }
+}
+
+export async function getPendingNotifications(userId: number, kinds?: Array<NotificationQueueRow["kind"]>) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(notificationQueue)
+    .where(and(eq(notificationQueue.userId, userId), eq(notificationQueue.status, "pending")))
+    .orderBy(asc(notificationQueue.createdAt));
+  if (!kinds?.length) return rows;
+  return rows.filter((r) => kinds.includes(r.kind));
+}
+
+export async function markNotificationsSent(ids: number[]) {
+  if (!ids.length) return;
+  const db = getDb();
+  for (const id of ids) {
+    await db
+      .update(notificationQueue)
+      .set({ status: "sent", sentAt: new Date() })
+      .where(eq(notificationQueue.id, id));
+  }
+}
+
+export async function markNotificationFailed(id: number, error: string) {
+  const db = getDb();
+  await db
+    .update(notificationQueue)
+    .set({ status: "failed", lastError: error.slice(0, 500) })
+    .where(eq(notificationQueue.id, id));
 }
 
 // Legacy compatibility exports (used in routers.ts)

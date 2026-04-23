@@ -29,6 +29,21 @@ vi.mock("./db", () => ({
   insertActionItem: vi.fn().mockResolvedValue({ id: 1 }),
   updateActionItemStatus: vi.fn().mockResolvedValue(undefined),
   deleteActionItem: vi.fn().mockResolvedValue(undefined),
+  getNotificationSettings: vi.fn().mockResolvedValue(null),
+  upsertNotificationSettings: vi.fn().mockResolvedValue(null),
+  enqueueNotification: vi.fn().mockResolvedValue(null),
+  getPendingNotifications: vi.fn().mockResolvedValue([]),
+  markNotificationsSent: vi.fn().mockResolvedValue(undefined),
+  markNotificationFailed: vi.fn().mockResolvedValue(undefined),
+  listNotificationSettings: vi.fn().mockResolvedValue([]),
+  DEFAULT_NOTIFICATION_SETTINGS: {
+    telegramChatId: null,
+    enabled: true,
+    emailFrequency: "instant",
+    taskFrequency: "instant",
+    dailyDigestTime: "09:00",
+    lastDailyDigestDate: null,
+  },
 }));
 
 // Mock del LLM para evitar llamadas reales a la API

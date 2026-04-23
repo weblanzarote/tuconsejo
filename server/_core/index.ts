@@ -16,6 +16,7 @@ import { initializeDatabase } from "../db";
 import { appRouter } from "../routers";
 import { startAutoSyncScheduler } from "../autoSync";
 import { startBackupScheduler } from "../backup";
+import { startNotificationScheduler } from "../notifications/scheduler";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -54,6 +55,9 @@ async function startServer() {
   startAutoSyncScheduler();
   // Scheduler de backups diarios de la BD
   startBackupScheduler();
+  // Scheduler de notificaciones (Telegram) — vacía cola según frecuencia y
+  // genera recordatorios de tareas con deadline una vez al día.
+  startNotificationScheduler();
   // Rutas de autenticación local
   registerLocalAuthRoutes(app);
   // Rutas de Google OAuth (Gmail + Calendar)

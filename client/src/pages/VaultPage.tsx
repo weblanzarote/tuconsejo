@@ -2,6 +2,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { TimezoneSelect } from "@/components/TimezoneSelect";
 import { useLocalAuth } from "@/hooks/useLocalAuth";
@@ -17,6 +25,8 @@ import {
   Sparkles,
   Download,
   Upload,
+  Bell,
+  Send,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
@@ -361,6 +371,7 @@ export default function VaultPage() {
         ))}
       </div>
 
+      <NotificationsSection />
       <AppSection />
       <DataPortabilitySection />
     </div>
@@ -466,6 +477,169 @@ function DataPortabilitySection() {
           />
         </label>
       </div>
+    </div>
+  );
+}
+
+function NotificationsSection() {
+  const { data, isLoading } = trpc.notifications.getSettings.useQuery();
+  const utils = trpc.useUtils();
+  const update = trpc.notifications.updateSettings.useMutation({
+    onSuccess: () => {
+      utils.notifications.getSettings.invalidate();
+    },
+    onError: (err) => toast.error(`No se pudo guardar: ${err.message}`),
+  });
+  const sendTest = trpc.notifications.sendTest.useMutation({
+    onSuccess: () => toast.success("Prueba enviada a Telegram"),
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [chatId, setChatId] = useState("");
+  const [emailFreq, setEmailFreq] = useState<"instant" | "hourly" | "daily" | "off">("instant");
+  const [taskFreq, setTaskFreq] = useState<"instant" | "daily" | "off">("instant");
+  const [dailyTime, setDailyTime] = useState("09:00");
+  const [enabled, setEnabled] = useState(true);
+
+  useEffect(() => {
+    if (!data) return;
+    setChatId(data.telegramChatId ?? "");
+    setEmailFreq(data.emailFrequency as typeof emailFreq);
+    setTaskFreq(data.taskFrequency as typeof taskFreq);
+    setDailyTime(data.dailyDigestTime ?? "09:00");
+    setEnabled(Boolean(data.enabled));
+  }, [data]);
+
+  const handleSave = () => {
+    update.mutate({
+      telegramChatId: chatId.trim() || null,
+      enabled,
+      emailFrequency: emailFreq,
+      taskFrequency: taskFreq,
+      dailyDigestTime: dailyTime,
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="border border-border rounded-lg p-4 bg-card">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-border rounded-lg p-4 bg-card space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+            <Bell className="h-4 w-4" /> Notificaciones (Telegram)
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Recibe avisos en Telegram cuando llegue un correo importante o haya tareas pendientes.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Label htmlFor="notif-enabled" className="text-xs text-muted-foreground">
+            Activas
+          </Label>
+          <Switch id="notif-enabled" checked={enabled} onCheckedChange={setEnabled} />
+        </div>
+      </div>
+
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer hover:text-foreground">Cómo obtener tu chat_id</summary>
+        <ol className="list-decimal ml-5 mt-2 space-y-1">
+          <li>En Telegram, busca <strong>@BotFather</strong> y crea un bot con <code>/newbot</code>. Copia el <em>token</em> y pégalo en <code>.env</code> como <code>TELEGRAM_BOT_TOKEN</code>, luego reinicia el servidor.</li>
+          <li>Busca tu bot recién creado en Telegram y envíale cualquier mensaje (ej. <code>/start</code>).</li>
+          <li>Abre en el navegador <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> y copia el número <code>chat.id</code> que aparezca.</li>
+          <li>Pégalo abajo y pulsa <strong>Enviar prueba</strong>.</li>
+        </ol>
+      </details>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="chat-id" className="text-xs text-muted-foreground">
+          Chat ID de Telegram
+        </Label>
+        <div className="flex gap-2">
+          <Input
+            id="chat-id"
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            placeholder="123456789"
+            className="bg-input border-border text-sm h-8 flex-1"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => sendTest.mutate()}
+            disabled={sendTest.isPending || !data?.telegramChatId}
+            className="gap-1.5 text-xs"
+          >
+            {sendTest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            Enviar prueba
+          </Button>
+        </div>
+        {!data?.telegramChatId && (
+          <p className="text-[11px] text-muted-foreground">Guarda el chat_id antes de poder enviar la prueba.</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Correos importantes</Label>
+          <Select value={emailFreq} onValueChange={(v) => setEmailFreq(v as typeof emailFreq)}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="instant">Al momento</SelectItem>
+              <SelectItem value="hourly">Resumen cada hora</SelectItem>
+              <SelectItem value="daily">Resumen diario</SelectItem>
+              <SelectItem value="off">No notificar</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Tareas (altas + recordatorios)</Label>
+          <Select value={taskFreq} onValueChange={(v) => setTaskFreq(v as typeof taskFreq)}>
+            <SelectTrigger className="w-full h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="instant">Al momento</SelectItem>
+              <SelectItem value="daily">Resumen diario</SelectItem>
+              <SelectItem value="off">No notificar</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {(emailFreq === "daily" || taskFreq === "daily") && (
+        <div className="space-y-1.5">
+          <Label htmlFor="digest-time" className="text-xs text-muted-foreground">
+            Hora del resumen diario (tu zona horaria)
+          </Label>
+          <Input
+            id="digest-time"
+            type="time"
+            value={dailyTime}
+            onChange={(e) => setDailyTime(e.target.value)}
+            className="bg-input border-border text-sm h-8 w-32"
+          />
+        </div>
+      )}
+
+      <Button
+        size="sm"
+        onClick={handleSave}
+        disabled={update.isPending}
+        className="gap-1.5"
+      >
+        {update.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+        Guardar
+      </Button>
     </div>
   );
 }
