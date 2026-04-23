@@ -250,7 +250,7 @@ export default function TodayPage() {
   const ask = trpc.advisors.ask.useMutation();
 
   const focusTasks = (allItems ?? [])
-    .filter((i) => i.status === "pendiente" || i.status === "en_progreso")
+    .filter((i) => !(i as { isArchived?: boolean }).isArchived && (i.status === "pendiente" || i.status === "en_progreso"))
     .sort((a, b) => {
       const p = { alta: 0, media: 1, baja: 2 };
       return (p[a.priority] ?? 1) - (p[b.priority] ?? 1);

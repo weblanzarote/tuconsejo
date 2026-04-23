@@ -16,6 +16,8 @@ import {
   MessageCircle,
   RefreshCw,
   ListPlus,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { AGENT_NAMES, AGENT_EMOJIS, AGENT_COLORS, type AgentId } from "@/lib/agents";
 import { useLocation } from "wouter";
@@ -44,9 +46,11 @@ interface EditingNote {
   content: string;
   tag: NoteTag;
   isPinned: boolean;
+  isArchived?: boolean;
 }
 
 function NotasTab() {
+  const [noteScope, setNoteScope] = useState<"activas" | "archivadas">("activas");
   const [searchQuery, setSearchQuery] = useState("");
   const [tagFilter, setTagFilter] = useState<TagFilter>("todas");
   const [editingNote, setEditingNote] = useState<EditingNote | null>(null);
@@ -73,7 +77,8 @@ function NotasTab() {
   });
 
   const notes = searchQuery.length >= 2 ? (searchResults ?? []) : allNotes;
-  const filtered = tagFilter === "todas" ? notes : notes.filter((n) => n.tag === tagFilter);
+  const byScope = notes.filter((n) => (noteScope === "archivadas" ? n.isArchived : !n.isArchived));
+  const filtered = tagFilter === "todas" ? byScope : byScope.filter((n) => n.tag === tagFilter);
   const pinned = filtered.filter((n) => n.isPinned);
   const unpinned = filtered.filter((n) => !n.isPinned);
 
@@ -81,9 +86,19 @@ function NotasTab() {
     if (editingNote && editorRef.current) editorRef.current.focus();
   }, [editingNote?.id]);
 
-  const openNew = () => { setEditingNote({ title: "", content: "", tag: "otro", isPinned: false }); setIsNewNote(true); };
+  const openNew = () => {
+    setEditingNote({ title: "", content: "", tag: "otro", isPinned: false, isArchived: false });
+    setIsNewNote(true);
+  };
   const openExisting = (note: typeof allNotes[0]) => {
-    setEditingNote({ id: note.id, title: note.title ?? "", content: note.content ?? "", tag: (note.tag ?? "otro") as NoteTag, isPinned: note.isPinned ?? false });
+    setEditingNote({
+      id: note.id,
+      title: note.title ?? "",
+      content: note.content ?? "",
+      tag: (note.tag ?? "otro") as NoteTag,
+      isPinned: note.isPinned ?? false,
+      isArchived: note.isArchived ?? false,
+    });
     setIsNewNote(false);
   };
   const closeEditor = () => { if (saveTimeout.current) clearTimeout(saveTimeout.current); setEditingNote(null); setIsNewNote(false); };
@@ -125,10 +140,43 @@ function NotasTab() {
     refetch();
   };
 
+  const handleToggleNoteArchive = async () => {
+    if (!editingNote?.id) return;
+    const next = !editingNote.isArchived;
+    await updateNote.mutateAsync({ id: editingNote.id, isArchived: next });
+    setEditingNote((prev) => (prev ? { ...prev, isArchived: next } : null));
+    refetch();
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <button onClick={openNew} className="flex items-center gap-1.5 text-sm bg-foreground text-background px-3 py-1.5 rounded-md hover:bg-foreground/90 transition-colors cursor-pointer">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex rounded-lg border border-border p-0.5 w-fit">
+          <button
+            type="button"
+            onClick={() => setNoteScope("activas")}
+            className={cn(
+              "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+              noteScope === "activas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Activas
+          </button>
+          <button
+            type="button"
+            onClick={() => setNoteScope("archivadas")}
+            className={cn(
+              "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+              noteScope === "archivadas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Archivadas
+          </button>
+        </div>
+        <button
+          onClick={openNew}
+          className="flex items-center gap-1.5 text-sm bg-foreground text-background px-3 py-1.5 rounded-md hover:bg-foreground/90 transition-colors cursor-pointer w-fit"
+        >
           <Plus className="h-4 w-4" /> Nueva nota
         </button>
       </div>
@@ -142,7 +190,19 @@ function NotasTab() {
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="flex items-center gap-1 ml-auto flex-wrap justify-end">
+              {editingNote.id && (
+                <button
+                  type="button"
+                  onClick={() => void handleToggleNoteArchive()}
+                  disabled={updateNote.isPending}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer disabled:opacity-50"
+                  title={editingNote.isArchived ? "Volver a notas activas (los asesores volverán a verla)" : "Archivar (deja de enviarse a los asesores)"}
+                >
+                  {editingNote.isArchived ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                  {editingNote.isArchived ? "Restaurar" : "Archivar"}
+                </button>
+              )}
               {editingNote.tag === "idea" && editingNote.id && (
                 <button
                   onClick={handleConvertToTask}
@@ -200,7 +260,9 @@ function NotasTab() {
           <p className="text-muted-foreground/60 text-xs mt-1">Crea una para guardar ideas, recordatorios o cualquier cosa.</p>
         </div>
       ) : filtered.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center">Sin resultados</p>
+        <p className="text-sm text-muted-foreground py-6 text-center">
+          {noteScope === "archivadas" ? "No hay notas archivadas." : "Sin resultados en activas."}
+        </p>
       ) : (
         <div className="space-y-4">
           {pinned.length > 0 && (
@@ -260,6 +322,7 @@ type PlanItem = {
   metrica?: string | null;
   valorObjetivo?: string | null;
   tipo: string;
+  isArchived?: boolean;
 };
 
 function PlanItemCard({
@@ -267,11 +330,13 @@ function PlanItemCard({
   onToggleStatus,
   onDelete,
   onChangeTipo,
+  onSetArchived,
 }: {
   item: PlanItem;
   onToggleStatus: (item: PlanItem) => void;
   onDelete: (id: number) => void;
   onChangeTipo: (id: number, tipo: "tarea" | "habito") => void;
+  onSetArchived?: (id: number, archived: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [, navigate] = useLocation();
@@ -280,6 +345,7 @@ function PlanItemCard({
   const agentEmoji = (AGENT_EMOJIS as Record<string, string>)[item.agentId] ?? "🤖";
   const agentColor = (AGENT_COLORS as Record<string, string>)[item.agentId] ?? "#8b5cf6";
   const isCompleted = item.status === "completada";
+  const isArchived = item.isArchived === true;
   const StatusIcon = STATUS_ICONS[item.status] ?? Circle;
 
   const handleChatClick = () => {
@@ -288,10 +354,13 @@ function PlanItemCard({
   };
 
   return (
-    <div className={cn(
-      "border border-border rounded-xl overflow-hidden bg-background transition-opacity",
-      isCompleted && "opacity-55"
-    )}>
+    <div
+      className={cn(
+        "border border-border rounded-xl overflow-hidden bg-background transition-opacity",
+        isCompleted && "opacity-55",
+        isArchived && "border-dashed opacity-80"
+      )}
+    >
       {/* Cabecera siempre visible */}
       <div className="flex items-center gap-3 px-4 py-3">
         <button
@@ -367,6 +436,22 @@ function PlanItemCard({
               {item.tipo === "habito" ? "Convertir en tarea" : "Convertir en hábito"}
             </button>
 
+            {onSetArchived && (
+              <button
+                type="button"
+                onClick={() => onSetArchived(item.id, !isArchived)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer"
+                title={
+                  isArchived
+                    ? "Desarchivar (vuelve al contexto de asesores si sigue en curso)"
+                    : "Archivar (deja de enviarse a los asesores; no borra el ítem)"
+                }
+              >
+                {isArchived ? <ArchiveRestore className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
+                {isArchived ? "Desarchivar" : "Archivar"}
+              </button>
+            )}
+
             {/* Eliminar */}
             <button
               onClick={() => onDelete(item.id)}
@@ -395,52 +480,105 @@ const STATUS_OPTIONS = [
 type StatusFilter = "todas" | "pendiente" | "en_progreso" | "completada";
 
 function TareasTab() {
+  const [planScope, setPlanScope] = useState<"activas" | "archivadas">("activas");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todas");
   const utils = trpc.useUtils();
 
   const { data: allItems = [], isLoading } = trpc.actionPlan.list.useQuery({});
   const tareas = allItems.filter((i) => (i as any).tipo !== "habito");
+  const tareasScoped = tareas.filter((i) => (planScope === "archivadas" ? (i as any).isArchived : !(i as any).isArchived));
 
   const updateStatus = trpc.actionPlan.updateStatus.useMutation({
     onSuccess: () => utils.actionPlan.list.invalidate(),
     onError: () => toast.error("No se pudo actualizar"),
   });
   const updateTipo = trpc.actionPlan.updateTipo.useMutation({
-    onSuccess: () => { utils.actionPlan.list.invalidate(); toast.success("Tipo actualizado"); },
+    onSuccess: () => {
+      utils.actionPlan.list.invalidate();
+      toast.success("Tipo actualizado");
+    },
     onError: () => toast.error("No se pudo actualizar"),
   });
   const deleteItem = trpc.actionPlan.delete.useMutation({
     onSuccess: () => utils.actionPlan.list.invalidate(),
     onError: () => toast.error("No se pudo eliminar"),
   });
+  const setArchived = trpc.actionPlan.setArchived.useMutation({
+    onSuccess: (_, v) => {
+      utils.actionPlan.list.invalidate();
+      toast.success(v.archived ? "Tarea archivada" : "Tarea restaurada");
+    },
+    onError: () => toast.error("No se pudo actualizar"),
+  });
 
-  const filtered = statusFilter === "todas" ? tareas : tareas.filter((i) => i.status === statusFilter);
+  const filtered =
+    statusFilter === "todas" ? tareasScoped : tareasScoped.filter((i) => i.status === statusFilter);
 
   const nextStatus = (current: string) =>
     current === "pendiente" ? "en_progreso" : current === "en_progreso" ? "completada" : "pendiente";
 
   return (
     <div className="space-y-6">
+      <div className="flex rounded-lg border border-border p-0.5 w-fit">
+        <button
+          type="button"
+          onClick={() => setPlanScope("activas")}
+          className={cn(
+            "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+            planScope === "activas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Activas
+        </button>
+        <button
+          type="button"
+          onClick={() => setPlanScope("archivadas")}
+          className={cn(
+            "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+            planScope === "archivadas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Archivadas
+        </button>
+      </div>
+
       <div className="flex gap-1.5 flex-wrap">
         {STATUS_OPTIONS.map((opt) => (
-          <button key={opt.value} onClick={() => setStatusFilter(opt.value)}
-            className={cn("text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer",
-              statusFilter === opt.value ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
-            )}>
+          <button
+            key={opt.value}
+            onClick={() => setStatusFilter(opt.value)}
+            className={cn(
+              "text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer",
+              statusFilter === opt.value
+                ? "bg-foreground text-background border-foreground"
+                : "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
+            )}
+          >
             {opt.label}
           </button>
         ))}
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">{[1,2,3].map((i) => <div key={i} className="border border-border rounded-xl p-4 animate-pulse h-16 bg-muted/20" />)}</div>
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="border border-border rounded-xl p-4 animate-pulse h-16 bg-muted/20" />
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
         <div className="py-12 text-center">
           <CheckCircle2 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
           <p className="text-sm text-muted-foreground">
-            {statusFilter === "todas" ? "Sin tareas todavía." : "Sin tareas en este estado."}
+            {planScope === "archivadas"
+              ? "No hay tareas archivadas."
+              : statusFilter === "todas"
+                ? "Sin tareas todavía."
+                : "Sin tareas en este estado."}
           </p>
-          <p className="text-xs text-muted-foreground/60 mt-1">Las tareas se crean desde las conversaciones con los asesores.</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            Las tareas se crean desde las conversaciones con los asesores. Archivar no las borra: solo las quita del
+            contexto automático de la IA.
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -451,6 +589,7 @@ function TareasTab() {
               onToggleStatus={(i) => updateStatus.mutate({ itemId: i.id, status: nextStatus(i.status) as any })}
               onDelete={(id) => deleteItem.mutate({ itemId: id })}
               onChangeTipo={(id, tipo) => updateTipo.mutate({ itemId: id, tipo })}
+              onSetArchived={(id, archived) => setArchived.mutate({ itemId: id, archived })}
             />
           ))}
         </div>
@@ -463,34 +602,84 @@ function TareasTab() {
 // HÁBITOS
 // ════════════════════════════════════════════════════════════════════════════
 function HabitosTab() {
+  const [planScope, setPlanScope] = useState<"activas" | "archivadas">("activas");
   const utils = trpc.useUtils();
 
   const { data: allItems = [], isLoading } = trpc.actionPlan.list.useQuery({});
-  const habitos = allItems.filter((i) => (i as any).tipo === "habito");
+  const habitosAll = allItems.filter((i) => (i as any).tipo === "habito");
+  const habitos = habitosAll.filter((i) => (planScope === "archivadas" ? (i as any).isArchived : !(i as any).isArchived));
 
+  const updateStatus = trpc.actionPlan.updateStatus.useMutation({
+    onSuccess: () => utils.actionPlan.list.invalidate(),
+    onError: () => toast.error("No se pudo actualizar"),
+  });
   const updateTipo = trpc.actionPlan.updateTipo.useMutation({
-    onSuccess: () => { utils.actionPlan.list.invalidate(); toast.success("Tipo actualizado"); },
+    onSuccess: () => {
+      utils.actionPlan.list.invalidate();
+      toast.success("Tipo actualizado");
+    },
     onError: () => toast.error("No se pudo actualizar"),
   });
   const deleteItem = trpc.actionPlan.delete.useMutation({
     onSuccess: () => utils.actionPlan.list.invalidate(),
     onError: () => toast.error("No se pudo eliminar"),
   });
+  const setArchived = trpc.actionPlan.setArchived.useMutation({
+    onSuccess: (_, v) => {
+      utils.actionPlan.list.invalidate();
+      toast.success(v.archived ? "Hábito archivado" : "Hábito restaurado");
+    },
+    onError: () => toast.error("No se pudo actualizar"),
+  });
+
+  const nextStatus = (current: string) =>
+    current === "pendiente" ? "en_progreso" : current === "en_progreso" ? "completada" : "pendiente";
 
   return (
     <div className="space-y-6">
+      <div className="flex rounded-lg border border-border p-0.5 w-fit">
+        <button
+          type="button"
+          onClick={() => setPlanScope("activas")}
+          className={cn(
+            "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+            planScope === "activas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Activas
+        </button>
+        <button
+          type="button"
+          onClick={() => setPlanScope("archivadas")}
+          className={cn(
+            "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+            planScope === "archivadas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Archivadas
+        </button>
+      </div>
+
       <p className="text-xs text-muted-foreground">
-        Prácticas y rutinas recomendadas por tus asesores. Sin fecha de finalización — se mantienen en el tiempo.
+        Prácticas y rutinas recomendadas por tus asesores. Los que están en curso se envían como contexto a la IA hasta
+        que los completes o archivés.
       </p>
 
       {isLoading ? (
-        <div className="space-y-2">{[1,2,3].map((i) => <div key={i} className="border border-border rounded-xl p-4 animate-pulse h-16 bg-muted/20" />)}</div>
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="border border-border rounded-xl p-4 animate-pulse h-16 bg-muted/20" />
+          ))}
+        </div>
       ) : habitos.length === 0 ? (
         <div className="py-12 text-center">
           <RefreshCw className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">Sin hábitos todavía.</p>
+          <p className="text-sm text-muted-foreground">
+            {planScope === "archivadas" ? "No hay hábitos archivados." : "Sin hábitos todavía."}
+          </p>
           <p className="text-xs text-muted-foreground/60 mt-1">
-            Los asesores los generarán automáticamente. También puedes convertir una tarea en hábito desde la pestaña Tareas.
+            Los asesores los generarán automáticamente. También puedes convertir una tarea en hábito desde la pestaña
+            Tareas.
           </p>
         </div>
       ) : (
@@ -499,9 +688,10 @@ function HabitosTab() {
             <PlanItemCard
               key={item.id}
               item={{ ...item, tipo: "habito" } as PlanItem}
-              onToggleStatus={() => {}}
+              onToggleStatus={(i) => updateStatus.mutate({ itemId: i.id, status: nextStatus(i.status) as any })}
               onDelete={(id) => deleteItem.mutate({ itemId: id })}
               onChangeTipo={(id, tipo) => updateTipo.mutate({ itemId: id, tipo })}
+              onSetArchived={(id, archived) => setArchived.mutate({ itemId: id, archived })}
             />
           ))}
         </div>
@@ -520,12 +710,16 @@ export default function ApuntesPage() {
 
   const tareas = allItems.filter((i) => (i as any).tipo !== "habito");
   const habitos = allItems.filter((i) => (i as any).tipo === "habito");
-  const pendingTareas = tareas.filter((t) => t.status === "pendiente" || t.status === "en_progreso").length;
+  const activeNotesCount = allNotes.filter((n) => !n.isArchived).length;
+  const pendingTareas = tareas.filter(
+    (t) => !(t as { isArchived?: boolean }).isArchived && (t.status === "pendiente" || t.status === "en_progreso")
+  ).length;
+  const activeHabitos = habitos.filter((h) => !(h as { isArchived?: boolean }).isArchived).length;
 
   const TABS: { key: Tab; label: string; badge?: number }[] = [
-    { key: "notas", label: "Notas", badge: allNotes.length > 0 ? allNotes.length : undefined },
+    { key: "notas", label: "Notas", badge: activeNotesCount > 0 ? activeNotesCount : undefined },
     { key: "tareas", label: "Tareas", badge: pendingTareas > 0 ? pendingTareas : undefined },
-    { key: "habitos", label: "Hábitos", badge: habitos.length > 0 ? habitos.length : undefined },
+    { key: "habitos", label: "Hábitos", badge: activeHabitos > 0 ? activeHabitos : undefined },
   ];
 
   return (

@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { AGENT_LIST, buildCheckinPrompt, buildSystemPrompt, getAgentById, type AgentId } from "./agents";
+import { buildAdvisorApuntesContext } from "./apuntesContext";
 import {
   deleteActionItem,
   getActionItemsByUser,
@@ -53,6 +55,9 @@ import {
   exportUserData,
   replaceUserData,
   updateActionItemTipo,
+  updateActionItemArchived,
+  getPulseDayCache,
+  upsertPulseDayCache,
   setEmailSignalClassifierFeedback,
   getRecentClassifierFeedbackExamples,
 } from "./db";
@@ -197,8 +202,12 @@ const chatRouter = router({
       // Obtener historial de mensajes (últimos 20)
       const history = await getMessagesByConversation(conv.id, 20);
 
-      // Obtener datos de La Bóveda
-      const vaultData = await getVaultByUserId(userId);
+      const [vaultData, noteRows, actionPlanRows] = await Promise.all([
+        getVaultByUserId(userId),
+        getNotesByUser(userId),
+        getActionItemsByUser(userId),
+      ]);
+      const apuntesCtx = buildAdvisorApuntesContext({ notes: noteRows, actionItems: actionPlanRows });
 
       // Obtener memoria del agente
       const memories = await getMemoryByAgent(userId, agentId, 5);
@@ -216,13 +225,15 @@ const chatRouter = router({
       // Obtener datos del usuario para el Guardián
       const guardianFramework = ctx.user.valuesFrameworkName ?? null;
 
-      // Construir system prompt
-      const systemPrompt = buildSystemPrompt(
+      let systemPrompt = buildSystemPrompt(
         agentId,
         vaultData as Record<string, unknown> | null,
         otherAgentsPlans || null,
         guardianFramework
       );
+      if (apuntesCtx) {
+        systemPrompt += `\n\n--- APUNTES DEL USUARIO (notas activas y tareas/hábitos en curso; lo archivado o completado no aparece aquí) ---\n${apuntesCtx}\n---`;
+      }
 
       // Construir historial de mensajes para la IA
       const llmMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
@@ -388,6 +399,13 @@ const actionPlanRouter = router({
       return { success: true };
     }),
 
+  setArchived: protectedProcedure
+    .input(z.object({ itemId: z.number(), archived: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await updateActionItemArchived(input.itemId, ctx.user.id, input.archived);
+      return { success: true };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ itemId: z.number() }))
     .mutation(async ({ ctx, input }) => {
@@ -402,14 +420,22 @@ const boardroomRouter = router({
     .input(z.object({ query: z.string().min(1).max(2000) }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.user.id;
-      const vaultData = await getVaultByUserId(userId);
-      const userConvs = await getConversationsByUser(userId);
+      const [vaultData, noteRows, actionPlanRows, userConvs] = await Promise.all([
+        getVaultByUserId(userId),
+        getNotesByUser(userId),
+        getActionItemsByUser(userId),
+        getConversationsByUser(userId),
+      ]);
+      const apuntesCtx = buildAdvisorApuntesContext({ notes: noteRows, actionItems: actionPlanRows });
       const agentPlans = userConvs
         .filter((c) => c.summary)
         .map((c) => `[${c.agentId.toUpperCase()}]: ${c.summary}`)
         .join("\n");
 
-      const systemPrompt = buildSystemPrompt("sala_juntas", vaultData as Record<string, unknown> | null, agentPlans || null, null);
+      let systemPrompt = buildSystemPrompt("sala_juntas", vaultData as Record<string, unknown> | null, agentPlans || null, null);
+      if (apuntesCtx) {
+        systemPrompt += `\n\n--- APUNTES DEL USUARIO (notas activas y planes en curso) ---\n${apuntesCtx}\n---`;
+      }
 
       // Guardar en conversación de sala de juntas
       const conv = await getOrCreateConversation(userId, "sala_juntas");
@@ -458,7 +484,7 @@ const boardroomRouter = router({
     const vaultData = await getVaultByUserId(userId);
     const allItems = await getActionItemsByUser(userId);
     const activeItems = allItems
-      .filter((i) => i.status === "pendiente" || i.status === "en_progreso")
+      .filter((i) => !i.isArchived && (i.status === "pendiente" || i.status === "en_progreso"))
       .map((i) => ({
         agentId: i.agentId,
         title: i.title,
@@ -582,6 +608,7 @@ const notesRouter = router({
         content: z.string().max(50000).optional(),
         tag: z.enum(["idea", "recordatorio", "compra", "proyecto", "otro"]).optional(),
         isPinned: z.boolean().optional(),
+        isArchived: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -681,8 +708,13 @@ Máximo 3 asesores. Sé selectivo.`;
       const { content, agentIds, diaryContext } = input;
       const userId = ctx.user.id;
 
-      const vaultData = await getVaultByUserId(userId);
-      const userConvs = await getConversationsByUser(userId);
+      const [vaultData, noteRows, actionPlanRows, userConvs] = await Promise.all([
+        getVaultByUserId(userId),
+        getNotesByUser(userId),
+        getActionItemsByUser(userId),
+        getConversationsByUser(userId),
+      ]);
+      const apuntesCtx = buildAdvisorApuntesContext({ notes: noteRows, actionItems: actionPlanRows });
       const otherPlans = userConvs
         .filter((c) => c.summary)
         .map((c) => `[${c.agentId.toUpperCase()}]: ${c.summary}`)
@@ -714,6 +746,9 @@ Máximo 3 asesores. Sé selectivo.`;
 
           if (diaryContext) {
             systemPrompt += `\n\nCONTEXTO DEL DIARIO DE HOY DEL USUARIO:\n${diaryContext}\nUsa este contexto para personalizar tu respuesta si es relevante.`;
+          }
+          if (apuntesCtx) {
+            systemPrompt += `\n\n--- APUNTES DEL USUARIO (notas activas y planes en curso) ---\n${apuntesCtx}\n---`;
           }
 
           // Historial reciente
@@ -1113,23 +1148,21 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
       return { eventId: event.id, htmlLink: event.htmlLink };
     }),
 
-  // Pulso del día — resumen IA de señales + tareas + diario
+  // Pulso del día — resumen IA de señales + tareas + diario (caché por día si no cambian los datos)
   pulseOfDay: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.user.id;
+    const todayDate = formatYyyyMmDdInTimeZone(new Date(), ctx.user.timezone?.trim() || "UTC");
 
     const [pendingCount, topSignals, allItems, todayEntry] = await Promise.all([
       getPendingSignalCount(userId),
       getEmailSignalsByUser(userId, "pending").then((s) => s.slice(0, 3)),
       getActionItemsByUser(userId),
-      getDiaryEntry(
-        userId,
-        formatYyyyMmDdInTimeZone(new Date(), ctx.user.timezone?.trim() || "UTC")
-      ),
+      getDiaryEntry(userId, todayDate),
     ]);
 
     const now = Date.now();
     const activeItems = allItems.filter(
-      (i) => i.status === "pendiente" || i.status === "en_progreso"
+      (i) => !i.isArchived && (i.status === "pendiente" || i.status === "en_progreso")
     );
     const overdueItems = activeItems.filter(
       (i) => i.deadline && i.deadline.getTime() < now
@@ -1164,6 +1197,14 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
       contextLines.push(`- Tu estado de ánimo de hoy: ${moodText}.`);
     }
 
+    const contextPayload = contextLines.join("\n");
+    const contextHash = createHash("sha256").update(contextPayload, "utf8").digest("hex");
+
+    const cached = await getPulseDayCache(userId, todayDate);
+    if (cached?.contextHash === contextHash && cached.summary?.trim()) {
+      return { summary: cached.summary.trim() };
+    }
+
     try {
       const response = await invokeLLM({
         messages: [
@@ -1172,12 +1213,15 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
             content:
               "Eres el asistente personal del usuario. Genera un resumen del día de 2-3 frases concisas y útiles en español, basándote en los datos proporcionados. Sé directo y alentador.",
           },
-          { role: "user", content: contextLines.join("\n") },
+          { role: "user", content: contextPayload },
         ],
         maxTokens: 150,
       });
       const rawContent = response.choices[0]?.message?.content;
       const summary = typeof rawContent === "string" ? rawContent.trim() : null;
+      if (summary) {
+        await upsertPulseDayCache(userId, todayDate, contextHash, summary);
+      }
       return { summary };
     } catch {
       return { summary: null };

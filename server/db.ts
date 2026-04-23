@@ -12,6 +12,7 @@ import {
   memoryEntries,
   diaryEntries,
   notes,
+  pulseDayCache,
   userIntegrations,
   emailSignals,
   type InsertUser,
@@ -216,6 +217,16 @@ export function initializeDatabase() {
     "ALTER TABLE users ADD COLUMN timezone TEXT",
     "ALTER TABLE user_integrations ADD COLUMN emailFilterPrefs TEXT",
     "ALTER TABLE users ADD COLUMN autoSyncEnabled INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE notes ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE action_items ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0",
+    `CREATE TABLE IF NOT EXISTS pulse_day_cache (
+      userId INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      contextHash TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      PRIMARY KEY (userId, date)
+    )`,
   ];
   for (const migration of migrations) {
     try { sqlite.exec(migration); } catch (_) { /* columna ya existe */ }
@@ -474,6 +485,14 @@ export async function updateActionItemStatus(
     .where(and(eq(actionItems.id, id), eq(actionItems.userId, userId)));
 }
 
+export async function updateActionItemArchived(id: number, userId: number, isArchived: boolean) {
+  const db = getDb();
+  await db
+    .update(actionItems)
+    .set({ isArchived, updatedAt: new Date() })
+    .where(and(eq(actionItems.id, id), eq(actionItems.userId, userId)));
+}
+
 export async function deleteActionItem(id: number, userId: number) {
   const db = getDb();
   await db
@@ -612,7 +631,7 @@ export async function insertNote(userId: number, data: Omit<InsertNote, "userId"
 export async function updateNote(
   userId: number,
   id: number,
-  data: Partial<Pick<InsertNote, "title" | "content" | "tag" | "isPinned">>
+  data: Partial<Pick<InsertNote, "title" | "content" | "tag" | "isPinned" | "isArchived">>
 ) {
   const db = getDb();
   await db
@@ -625,6 +644,43 @@ export async function updateNote(
 export async function deleteNote(userId: number, id: number) {
   const db = getDb();
   await db.delete(notes).where(and(eq(notes.id, id), eq(notes.userId, userId)));
+}
+
+export async function getPulseDayCache(userId: number, date: string) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(pulseDayCache)
+    .where(and(eq(pulseDayCache.userId, userId), eq(pulseDayCache.date, date)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function upsertPulseDayCache(
+  userId: number,
+  date: string,
+  contextHash: string,
+  summary: string
+) {
+  const db = getDb();
+  const now = new Date();
+  await db
+    .insert(pulseDayCache)
+    .values({
+      userId,
+      date,
+      contextHash,
+      summary,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [pulseDayCache.userId, pulseDayCache.date],
+      set: {
+        contextHash,
+        summary,
+        updatedAt: now,
+      },
+    });
 }
 
 export async function searchNotes(userId: number, query: string) {
@@ -699,14 +755,21 @@ export async function replaceUserData(
     });
   }
   if (Array.isArray(data.notes) && data.notes.length) {
-    await db.insert(notes).values(data.notes.map(strip));
+    await db.insert(notes).values(
+      data.notes.map((r) => {
+        const s = strip(r) as any;
+        if (s.isArchived === undefined) s.isArchived = false;
+        return s;
+      })
+    );
   }
   if (Array.isArray(data.actionItems) && data.actionItems.length) {
     await db.insert(actionItems).values(
       data.actionItems.map((r) => {
-        const s = strip(r);
+        const s = strip(r) as any;
         if (s.deadline && typeof s.deadline === "string") s.deadline = new Date(s.deadline);
         if (s.completedAt && typeof s.completedAt === "string") s.completedAt = new Date(s.completedAt);
+        if (s.isArchived === undefined) s.isArchived = false;
         return s;
       })
     );

@@ -3,6 +3,7 @@ import {
   sqliteTable,
   text,
   real,
+  primaryKey,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
@@ -112,6 +113,8 @@ export const actionItems = sqliteTable("action_items", {
     .default("pendiente")
     .notNull(),
   tipo: text("tipo", { enum: ["tarea", "habito"] }).default("tarea").notNull(),
+  /** Oculto del contexto de asesores / pulso; distinto de completada */
+  isArchived: integer("isArchived", { mode: "boolean" }).default(false).notNull(),
   deadline: integer("deadline", { mode: "timestamp_ms" }),
   metrica: text("metrica"),
   valorObjetivo: text("valorObjetivo"),
@@ -176,6 +179,8 @@ export const notes = sqliteTable("notes", {
     .default("otro")
     .notNull(),
   isPinned: integer("isPinned", { mode: "boolean" }).default(false).notNull(),
+  /** Fuera del contexto de asesores; la nota sigue visible en Apuntes */
+  isArchived: integer("isArchived", { mode: "boolean" }).default(false).notNull(),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .default(sql`(unixepoch() * 1000)`)
     .notNull(),
@@ -258,3 +263,22 @@ export const emailSignals = sqliteTable("email_signals", {
 
 export type EmailSignal = typeof emailSignals.$inferSelect;
 export type InsertEmailSignal = typeof emailSignals.$inferInsert;
+
+// ─── Caché Pulso del día (resumen IA por día + hash de entradas) ─────────────
+export const pulseDayCache = sqliteTable(
+  "pulse_day_cache",
+  {
+    userId: integer("userId").notNull(),
+    date: text("date").notNull(),
+    contextHash: text("contextHash").notNull(),
+    summary: text("summary").notNull(),
+    updatedAt: integer("updatedAt", { mode: "timestamp_ms" })
+      .default(sql`(unixepoch() * 1000)`)
+      .notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.date] }),
+  })
+);
+
+export type PulseDayCacheRow = typeof pulseDayCache.$inferSelect;
