@@ -479,8 +479,13 @@ export default function SenalesPage() {
     onSuccess: async (data) => {
       await utils.signals.list.invalidate();
       await utils.signals.pendingCount.invalidate();
-      if (data.newSignals > 0) {
-        toast.success(`${data.newSignals} señal${data.newSignals > 1 ? "es" : ""} nueva${data.newSignals > 1 ? "s" : ""}`);
+      const nImp = data.newSignals ?? 0;
+      const nReg = data.newRegistry ?? 0;
+      if (nImp > 0 || nReg > 0) {
+        const parts: string[] = [];
+        if (nImp > 0) parts.push(`${nImp} señal${nImp > 1 ? "es" : ""} nueva${nImp > 1 ? "s" : ""}`);
+        if (nReg > 0) parts.push(`${nReg} en registro secundario`);
+        toast.success(parts.join(" · "));
       } else {
         toast("Sin novedades en el correo");
       }

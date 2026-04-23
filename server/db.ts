@@ -1163,7 +1163,7 @@ export async function getEmailSignalById(userId: number, id: number) {
 export async function updateEmailSignalStatus(
   userId: number,
   id: number,
-  status: "pending" | "replied" | "ignored" | "converted" | "archived",
+  status: "pending" | "low_priority" | "replied" | "ignored" | "converted" | "archived",
   extra?: { draftReply?: string; taskId?: number; googleCalendarEventId?: string }
 ) {
   const db = getDb();
@@ -1188,14 +1188,32 @@ export async function setEmailSignalClassifierFeedback(
   feedback: "spot_on" | "not_important"
 ) {
   const db = getDb();
+  const row = await getEmailSignalById(userId, signalId);
+  if (!row) return;
   await db
     .update(emailSignals)
     .set({
       classifierUserFeedback: feedback,
       updatedAt: new Date(),
-      ...(feedback === "not_important" ? { status: "ignored" as const } : {}),
+      ...(feedback === "not_important"
+        ? { status: "ignored" as const }
+        : row.status === "low_priority"
+          ? { status: "pending" as const }
+          : {}),
     })
     .where(and(eq(emailSignals.id, signalId), eq(emailSignals.userId, userId)));
+}
+
+/** Pasa un correo del registro secundario (IA no lo destacó) a pendientes / importantes. */
+export async function promoteEmailSignalFromRegistry(userId: number, id: number): Promise<boolean> {
+  const row = await getEmailSignalById(userId, id);
+  if (!row || row.status !== "low_priority") return false;
+  const db = getDb();
+  await db
+    .update(emailSignals)
+    .set({ status: "pending", updatedAt: new Date() })
+    .where(and(eq(emailSignals.id, id), eq(emailSignals.userId, userId)));
+  return true;
 }
 
 /** Ejemplos recientes de aciertos/errores del filtro para enriquecer el prompt del clasificador */

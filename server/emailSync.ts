@@ -11,7 +11,10 @@ import { getProvider } from "./providers";
 
 export interface SyncResult {
   synced: number;
+  /** Nuevos correos destacados por la IA (pendientes + notificación). */
   newSignals: number;
+  /** Nuevos correos guardados solo en el registro secundario (sin notificación). */
+  newRegistry: number;
   errors: string[];
 }
 
@@ -22,7 +25,7 @@ export interface SyncResult {
 export async function syncUserEmails(userId: number): Promise<SyncResult> {
   const integrations = await getIntegrationsByUser(userId);
   if (!integrations.length) {
-    return { synced: 0, newSignals: 0, errors: [] };
+    return { synced: 0, newSignals: 0, newRegistry: 0, errors: [] };
   }
 
   const userEmailPrefs = await getEmailFilterPrefs(userId);
@@ -40,6 +43,7 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
 
   let totalSynced = 0;
   let totalNew = 0;
+  let totalRegistry = 0;
   const errors: string[] = [];
 
   for (const integration of integrations) {
@@ -86,6 +90,7 @@ Reglas:
 - Si el usuario pide ignorar hilos que no van dirigidos a él sino a un docente u otra persona, usa toCc y el cuerpo/snippet: si los destinatarios principales no incluyen la cuenta del usuario y el tono es respuesta de alumno a profesor, NO es importante.
 - Si el usuario indica que su nombre (p. ej. Fernando o Fer) marca importancia, prioriza esos mensajes salvo que otra regla explícita diga lo contrario.
 - Por defecto ignora newsletters, notificaciones automáticas, marketing, confirmaciones rutinarias y spam.
+- Los correos que no marques como importantes igual quedan guardados en un registro para el usuario: si hay duda razonable (trabajo, dinero, salud, citas, trámites personales), inclúyelos en "important".
 
 ${accountPrefs ? `Preferencias del usuario (globales + esta cuenta):\n${accountPrefs}` : ""}${classifierLearningBlock}
 
@@ -106,7 +111,7 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
 
       for (const detail of validDetails) {
         if (hardIgnoredSenders.has(detail.fromAddress.trim().toLowerCase())) continue;
-        if (!importantIds.includes(detail.providerMessageId)) continue;
+        const isImportant = importantIds.includes(detail.providerMessageId);
         const inserted = await insertEmailSignal({
           userId,
           integrationId: integration.id,
@@ -117,9 +122,10 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
           snippet: detail.snippet,
           fullBody: detail.fullBody,
           receivedAt: detail.receivedAt,
-          status: "pending",
+          status: isImportant ? "pending" : "low_priority",
         });
-        if (inserted) {
+        if (!inserted) continue;
+        if (isImportant) {
           totalNew++;
           await dispatchNotification({
             userId,
@@ -129,6 +135,8 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
             refId: inserted.id,
             dedupeKey: `email:${inserted.id}`,
           });
+        } else {
+          totalRegistry++;
         }
       }
     } catch (err: any) {
@@ -136,5 +144,5 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
     }
   }
 
-  return { synced: totalSynced, newSignals: totalNew, errors };
+  return { synced: totalSynced, newSignals: totalNew, newRegistry: totalRegistry, errors };
 }

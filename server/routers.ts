@@ -68,6 +68,7 @@ import {
   getBankMovementsForUser,
   clearBankImportForUser,
   setEmailSignalClassifierFeedback,
+  promoteEmailSignalFromRegistry,
   getRecentClassifierFeedbackExamples,
 } from "./db";
 import { getProvider, createCalendarEventForIntegration, listUpcomingEventsForIntegration } from "./providers";
@@ -1013,6 +1014,20 @@ const signalsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       await setEmailSignalClassifierFeedback(ctx.user.id, input.id, input.verdict);
+      return { success: true };
+    }),
+
+  /** Correo en registro secundario (no destacado por la IA) → pendientes / importantes */
+  promoteFromRegistry: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const ok = await promoteEmailSignalFromRegistry(ctx.user.id, input.id);
+      if (!ok) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este correo no está en el registro secundario o ya fue procesado",
+        });
+      }
       return { success: true };
     }),
 

@@ -16,6 +16,8 @@ import {
   ThumbsDown,
   Archive,
   ArchiveRestore,
+  Inbox,
+  Star,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -212,6 +214,80 @@ function ConvertDrawer({ signal, onClose, onConverted }: {
           >
             {isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Guardar tarea
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Fila compacta: registro secundario (no destacado por la IA) ───────────────
+function RegistroCorreoRow({
+  signal,
+  onChanged,
+}: {
+  signal: {
+    id: number;
+    subject: string;
+    fromName: string;
+    fromAddress: string;
+    snippet: string;
+    receivedAt?: Date | null;
+  };
+  onChanged: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const promoteMutation = trpc.signals.promoteFromRegistry.useMutation({
+    onSuccess: async () => {
+      await utils.signals.list.invalidate();
+      await utils.signals.pendingCount.invalidate();
+      toast.success("Correo movido a pendientes");
+      onChanged();
+    },
+    onError: () => toast.error("No se pudo destacar el correo"),
+  });
+  const ignoreMutation = trpc.signals.ignore.useMutation({
+    onSuccess: async () => {
+      await utils.signals.list.invalidate();
+      onChanged();
+    },
+    onError: () => toast.error("No se pudo ignorar"),
+  });
+
+  return (
+    <div className="flex items-start gap-2 py-2 px-2 rounded-lg border border-transparent hover:border-border/80 hover:bg-muted/30 transition-colors text-left">
+      <Inbox className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="text-[11px] font-medium text-foreground/90 truncate leading-tight">{signal.subject || "(sin asunto)"}</p>
+        <p className="text-[10px] text-muted-foreground truncate">
+          {signal.fromName || signal.fromAddress}
+          {signal.fromName && signal.fromAddress !== signal.fromName ? (
+            <span className="opacity-60"> · {signal.fromAddress}</span>
+          ) : null}
+        </p>
+        <p className="text-[10px] text-muted-foreground/70 line-clamp-1">{signal.snippet}</p>
+      </div>
+      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">{formatRelativeDate(signal.receivedAt)}</span>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            title="Marcar como importante (pendientes)"
+            disabled={promoteMutation.isPending}
+            onClick={() => promoteMutation.mutate({ id: signal.id })}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/25 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Star className="h-3 w-3 inline mr-0.5 align-middle" />
+            Importante
+          </button>
+          <button
+            type="button"
+            title="Ignorar"
+            disabled={ignoreMutation.isPending}
+            onClick={() => ignoreMutation.mutate({ id: signal.id })}
+            className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <X className="h-3 w-3" />
           </button>
         </div>
       </div>
@@ -481,7 +557,7 @@ function PreferenciasSection() {
       {open && (
         <div className="px-4 pb-4 space-y-3 border-t border-border">
           <p className="text-xs text-muted-foreground pt-3">
-            Describe qué correos quieres ver y cuáles ignorar. La IA ve la dirección exacta del remitente (p. ej. noreply@…) y los destinatarios Para/Cc. Si pides ignorar un correo concreto, incluye su dirección completa. Al marcar{" "}
+            Describe qué correos quieres ver y cuáles ignorar. La IA ve la dirección exacta del remitente (p. ej. noreply@…) y los destinatarios Para/Cc. Si pides ignorar un correo concreto, incluye su dirección completa. Los que la IA no destaque igual aparecen en el registro discreto abajo; al marcar{" "}
             <strong className="text-foreground/90">Sí, importante</strong> o <strong className="text-foreground/90">No era tan importante</strong>, el sistema aprende en las próximas sincronizaciones.
           </p>
           <textarea
@@ -617,6 +693,11 @@ export default function CorreosPage() {
     { status: activeTab },
     { enabled: accounts.length > 0 }
   );
+  const { data: registrySignals = [], isLoading: registryLoading } = trpc.signals.list.useQuery(
+    { status: "low_priority" },
+    { enabled: accounts.length > 0 }
+  );
+  const [registryOpen, setRegistryOpen] = useState(false);
   const [showImapModal, setShowImapModal] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
 
@@ -624,8 +705,17 @@ export default function CorreosPage() {
     onSuccess: async (data) => {
       await utils.signals.list.invalidate();
       await utils.signals.pendingCount.invalidate();
-      if (data.newSignals > 0) {
-        toast.success(`${data.newSignals} correo${data.newSignals > 1 ? "s" : ""} nuevo${data.newSignals > 1 ? "s" : ""}`);
+      const nImp = data.newSignals ?? 0;
+      const nReg = data.newRegistry ?? 0;
+      if (nImp > 0 || nReg > 0) {
+        const parts: string[] = [];
+        if (nImp > 0) {
+          parts.push(`${nImp} destacado${nImp > 1 ? "s" : ""} (pendientes)`);
+        }
+        if (nReg > 0) {
+          parts.push(`${nReg} en el registro secundario`);
+        }
+        toast.success(parts.join(" · "));
       } else {
         toast("Sin novedades en el correo");
       }
@@ -810,7 +900,11 @@ export default function CorreosPage() {
                 <>
                   <Check className="h-8 w-8 text-muted-foreground/40 mx-auto" />
                   <p className="text-sm text-muted-foreground">Sin correos pendientes</p>
-                  <p className="text-xs text-muted-foreground/60">Pulsa "Actualizar" para revisar tu bandeja</p>
+                  <p className="text-xs text-muted-foreground/60">
+                    {registrySignals.length > 0
+                      ? "Hay correos en el registro secundario abajo por si la IA fue demasiado estricta."
+                      : 'Pulsa "Actualizar" para revisar tu bandeja'}
+                  </p>
                 </>
               ) : (
                 <>
@@ -832,6 +926,40 @@ export default function CorreosPage() {
                   onConverted={() => utils.signals.list.invalidate()}
                 />
               ))}
+            </div>
+          )}
+          {activeTab === "pending" && hasAccounts && (registrySignals.length > 0 || registryLoading) && (
+            <div className="border border-border/60 rounded-xl overflow-hidden bg-muted/20">
+              <button
+                type="button"
+                onClick={() => setRegistryOpen((v) => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <Inbox className="h-3.5 w-3.5 flex-shrink-0 opacity-60" />
+                  <span className="truncate text-left">
+                    Registro reciente (no destacados por la IA)
+                    {!registryLoading && (
+                      <span className="text-muted-foreground/60 font-normal"> · {registrySignals.length}</span>
+                    )}
+                  </span>
+                </span>
+                {registryOpen ? <ChevronUp className="h-3.5 w-3.5 flex-shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />}
+              </button>
+              {registryOpen && (
+                <div className="px-2 pb-2 pt-0 border-t border-border/50 max-h-[min(50vh,420px)] overflow-y-auto space-y-0.5">
+                  <p className="text-[10px] text-muted-foreground/80 px-2 py-1.5 leading-relaxed">
+                    Misma bandeja sincronizada, sin notificación. Si ves algo relevante, pulsa Importante y pasa arriba.
+                  </p>
+                  {registryLoading ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">Cargando…</div>
+                  ) : (
+                    registrySignals.map((s) => (
+                      <RegistroCorreoRow key={s.id} signal={s as any} onChanged={() => utils.signals.list.invalidate()} />
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           )}
         </>

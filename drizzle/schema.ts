@@ -242,7 +242,7 @@ export const emailSignals = sqliteTable("email_signals", {
   fullBody: text("fullBody"),
   receivedAt: integer("receivedAt", { mode: "timestamp_ms" }),
   status: text("status", {
-    enum: ["pending", "replied", "ignored", "converted", "archived"],
+    enum: ["pending", "low_priority", "replied", "ignored", "converted", "archived"],
   })
     .default("pending")
     .notNull(),
