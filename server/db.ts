@@ -1,4 +1,4 @@
-import { eq, and, desc, or, like, isNotNull } from "drizzle-orm";
+import { eq, and, asc, desc, or, like, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import path from "path";
@@ -13,6 +13,8 @@ import {
   diaryEntries,
   notes,
   pulseDayCache,
+  bankMovements,
+  bankImportState,
   userIntegrations,
   emailSignals,
   type InsertUser,
@@ -226,6 +228,26 @@ export function initializeDatabase() {
       summary TEXT NOT NULL,
       updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       PRIMARY KEY (userId, date)
+    )`,
+    `CREATE TABLE IF NOT EXISTS bank_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      bookedDate TEXT NOT NULL,
+      valueDate TEXT,
+      description TEXT NOT NULL,
+      extra TEXT,
+      amount REAL NOT NULL,
+      balance REAL,
+      source TEXT NOT NULL DEFAULT 'caixa_xls',
+      importedAt INTEGER NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS bank_movements_user_booked ON bank_movements(userId, bookedDate)`,
+    `CREATE TABLE IF NOT EXISTS bank_import_state (
+      userId INTEGER PRIMARY KEY,
+      accountHint TEXT,
+      fileName TEXT,
+      lastImportedAt INTEGER NOT NULL,
+      movementCount INTEGER NOT NULL DEFAULT 0
     )`,
   ];
   for (const migration of migrations) {
@@ -698,24 +720,107 @@ export async function searchNotes(userId: number, query: string) {
     .orderBy(desc(notes.updatedAt));
 }
 
+// ─── Importación bancaria (CaixaBank .xls, etc.) ─────────────────────────────
+export async function getBankImportState(userId: number) {
+  const db = getDb();
+  const rows = await db.select().from(bankImportState).where(eq(bankImportState.userId, userId)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function replaceBankMovementsForUser(
+  userId: number,
+  meta: {
+    accountHint: string | null;
+    fileName: string | null;
+    movements: Array<{
+      bookedDate: string;
+      valueDate: string;
+      description: string;
+      extra: string;
+      amount: number;
+      balance: number | null;
+      source: string;
+    }>;
+  }
+) {
+  const db = getDb();
+  const now = new Date();
+  await db.delete(bankMovements).where(eq(bankMovements.userId, userId));
+
+  const rows = meta.movements.map((m) => ({
+    userId,
+    bookedDate: m.bookedDate,
+    valueDate: m.valueDate,
+    description: m.description,
+    extra: m.extra.length ? m.extra : null,
+    amount: m.amount,
+    balance: m.balance,
+    source: m.source,
+    importedAt: now,
+  }));
+
+  const CHUNK = 400;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    await db.insert(bankMovements).values(rows.slice(i, i + CHUNK));
+  }
+
+  await db
+    .insert(bankImportState)
+    .values({
+      userId,
+      accountHint: meta.accountHint,
+      fileName: meta.fileName,
+      lastImportedAt: now,
+      movementCount: rows.length,
+    })
+    .onConflictDoUpdate({
+      target: bankImportState.userId,
+      set: {
+        accountHint: meta.accountHint,
+        fileName: meta.fileName,
+        lastImportedAt: now,
+        movementCount: rows.length,
+      },
+    });
+}
+
+export async function getBankMovementsForUser(userId: number) {
+  const db = getDb();
+  return db
+    .select()
+    .from(bankMovements)
+    .where(eq(bankMovements.userId, userId))
+    .orderBy(asc(bankMovements.bookedDate), asc(bankMovements.id));
+}
+
+export async function clearBankImportForUser(userId: number) {
+  const db = getDb();
+  await db.delete(bankMovements).where(eq(bankMovements.userId, userId));
+  await db.delete(bankImportState).where(eq(bankImportState.userId, userId));
+}
+
 // ─── Export / Import completo ────────────────────────────────────────────────
 export async function exportUserData(userId: number) {
   const db = getDb();
-  const [vaultRow, noteRows, actionRows, diaryRows, memoryRows] = await Promise.all([
+  const [vaultRow, noteRows, actionRows, diaryRows, memoryRows, bankRows, bankState] = await Promise.all([
     db.select().from(vault).where(eq(vault.userId, userId)).limit(1),
     db.select().from(notes).where(eq(notes.userId, userId)),
     db.select().from(actionItems).where(eq(actionItems.userId, userId)),
     db.select().from(diaryEntries).where(eq(diaryEntries.userId, userId)),
     db.select().from(memoryEntries).where(eq(memoryEntries.userId, userId)),
+    db.select().from(bankMovements).where(eq(bankMovements.userId, userId)),
+    db.select().from(bankImportState).where(eq(bankImportState.userId, userId)).limit(1),
   ]);
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     vault: vaultRow[0] ?? null,
     notes: noteRows,
     actionItems: actionRows,
     diaryEntries: diaryRows,
     memoryEntries: memoryRows,
+    bankMovements: bankRows,
+    bankImportState: bankState[0] ?? null,
   };
 }
 
@@ -727,6 +832,8 @@ export async function replaceUserData(
     actionItems?: any[];
     diaryEntries?: any[];
     memoryEntries?: any[];
+    bankMovements?: any[];
+    bankImportState?: any | null;
   }
 ) {
   const db = getDb();
@@ -736,6 +843,8 @@ export async function replaceUserData(
     db.delete(actionItems).where(eq(actionItems.userId, userId)),
     db.delete(diaryEntries).where(eq(diaryEntries.userId, userId)),
     db.delete(memoryEntries).where(eq(memoryEntries.userId, userId)),
+    db.delete(bankMovements).where(eq(bankMovements.userId, userId)),
+    db.delete(bankImportState).where(eq(bankImportState.userId, userId)),
   ]);
 
   const strip = <T extends Record<string, any>>(row: T) => {
@@ -779,6 +888,20 @@ export async function replaceUserData(
   }
   if (Array.isArray(data.memoryEntries) && data.memoryEntries.length) {
     await db.insert(memoryEntries).values(data.memoryEntries.map(strip));
+  }
+  if (Array.isArray(data.bankMovements) && data.bankMovements.length) {
+    await db.insert(bankMovements).values(
+      data.bankMovements.map((r) => {
+        const s = strip(r) as any;
+        if (s.importedAt && typeof s.importedAt === "string") s.importedAt = new Date(s.importedAt);
+        return s;
+      })
+    );
+  }
+  if (data.bankImportState && typeof data.bankImportState === "object") {
+    const s = strip(data.bankImportState) as any;
+    if (s.lastImportedAt && typeof s.lastImportedAt === "string") s.lastImportedAt = new Date(s.lastImportedAt);
+    await db.insert(bankImportState).values(s);
   }
 }
 

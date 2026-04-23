@@ -11,6 +11,7 @@ import {
   FileText,
   ChevronRight,
   Download,
+  Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { href: "/correos", label: "Correos", icon: Mail },
   { href: "/asesores", label: "Asesores", icon: Users },
   { href: "/apuntes", label: "Apuntes", icon: FileText },
+  { href: "/finanzas", label: "Finanzas", icon: Wallet },
 ];
 
 interface MinimalLayoutProps {

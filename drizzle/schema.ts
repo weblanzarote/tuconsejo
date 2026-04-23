@@ -282,3 +282,30 @@ export const pulseDayCache = sqliteTable(
 );
 
 export type PulseDayCacheRow = typeof pulseDayCache.$inferSelect;
+
+// ─── Movimientos bancarios importados (p. ej. CaixaBank .xls) ─────────────────
+export const bankMovements = sqliteTable("bank_movements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("userId").notNull(),
+  bookedDate: text("bookedDate").notNull(),
+  valueDate: text("valueDate"),
+  description: text("description").notNull(),
+  extra: text("extra"),
+  amount: real("amount").notNull(),
+  balance: real("balance"),
+  source: text("source").notNull().default("caixa_xls"),
+  importedAt: integer("importedAt", { mode: "timestamp_ms" }).notNull(),
+});
+
+export type BankMovement = typeof bankMovements.$inferSelect;
+export type InsertBankMovement = typeof bankMovements.$inferInsert;
+
+export const bankImportState = sqliteTable("bank_import_state", {
+  userId: integer("userId").primaryKey(),
+  accountHint: text("accountHint"),
+  fileName: text("fileName"),
+  lastImportedAt: integer("lastImportedAt", { mode: "timestamp_ms" }).notNull(),
+  movementCount: integer("movementCount").notNull().default(0),
+});
+
+export type BankImportState = typeof bankImportState.$inferSelect;

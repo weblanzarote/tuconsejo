@@ -18,6 +18,7 @@ import DiaryHistoryPage from "./pages/DiaryHistoryPage";
 import AsesoresPage from "./pages/AsesoresPage";
 import CorreosPage from "./pages/CorreosPage";
 import ApuntesPage from "./pages/ApuntesPage";
+import FinancePage from "./pages/FinancePage";
 // Layout
 import MinimalLayout from "./components/MinimalLayout";
 
@@ -92,6 +93,9 @@ function Router() {
       </Route>
       <Route path="/apuntes">
         {() => <ProtectedRoute component={ApuntesPage} />}
+      </Route>
+      <Route path="/finanzas">
+        {() => <ProtectedRoute component={FinancePage} />}
       </Route>
       {/* Perfil (antes Vault/Bóveda) — accesible desde el avatar de usuario */}
       <Route path="/perfil">

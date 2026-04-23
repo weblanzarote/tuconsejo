@@ -5,7 +5,9 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { AGENT_LIST, buildCheckinPrompt, buildSystemPrompt, getAgentById, type AgentId } from "./agents";
+import { parseCaixaBankMovimientosXls } from "./bankImport/caixaXls";
 import { buildAdvisorApuntesContext } from "./apuntesContext";
+import { loadFinanceAdvisorBlock } from "./financeContext";
 import {
   deleteActionItem,
   getActionItemsByUser,
@@ -58,6 +60,10 @@ import {
   updateActionItemArchived,
   getPulseDayCache,
   upsertPulseDayCache,
+  replaceBankMovementsForUser,
+  getBankImportState,
+  getBankMovementsForUser,
+  clearBankImportForUser,
   setEmailSignalClassifierFeedback,
   getRecentClassifierFeedbackExamples,
 } from "./db";
@@ -202,10 +208,11 @@ const chatRouter = router({
       // Obtener historial de mensajes (últimos 20)
       const history = await getMessagesByConversation(conv.id, 20);
 
-      const [vaultData, noteRows, actionPlanRows] = await Promise.all([
+      const [vaultData, noteRows, actionPlanRows, financeBlock] = await Promise.all([
         getVaultByUserId(userId),
         getNotesByUser(userId),
         getActionItemsByUser(userId),
+        loadFinanceAdvisorBlock(userId),
       ]);
       const apuntesCtx = buildAdvisorApuntesContext({ notes: noteRows, actionItems: actionPlanRows });
 
@@ -233,6 +240,9 @@ const chatRouter = router({
       );
       if (apuntesCtx) {
         systemPrompt += `\n\n--- APUNTES DEL USUARIO (notas activas y tareas/hábitos en curso; lo archivado o completado no aparece aquí) ---\n${apuntesCtx}\n---`;
+      }
+      if (financeBlock) {
+        systemPrompt += `\n\n--- EXTRACTO BANCARIO IMPORTADO (.xls CaixaBank; confidencial) ---\n${financeBlock}\n---`;
       }
 
       // Construir historial de mensajes para la IA
@@ -420,11 +430,12 @@ const boardroomRouter = router({
     .input(z.object({ query: z.string().min(1).max(2000) }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.user.id;
-      const [vaultData, noteRows, actionPlanRows, userConvs] = await Promise.all([
+      const [vaultData, noteRows, actionPlanRows, userConvs, financeBlock] = await Promise.all([
         getVaultByUserId(userId),
         getNotesByUser(userId),
         getActionItemsByUser(userId),
         getConversationsByUser(userId),
+        loadFinanceAdvisorBlock(userId),
       ]);
       const apuntesCtx = buildAdvisorApuntesContext({ notes: noteRows, actionItems: actionPlanRows });
       const agentPlans = userConvs
@@ -435,6 +446,9 @@ const boardroomRouter = router({
       let systemPrompt = buildSystemPrompt("sala_juntas", vaultData as Record<string, unknown> | null, agentPlans || null, null);
       if (apuntesCtx) {
         systemPrompt += `\n\n--- APUNTES DEL USUARIO (notas activas y planes en curso) ---\n${apuntesCtx}\n---`;
+      }
+      if (financeBlock) {
+        systemPrompt += `\n\n--- EXTRACTO BANCARIO IMPORTADO (.xls CaixaBank; confidencial) ---\n${financeBlock}\n---`;
       }
 
       // Guardar en conversación de sala de juntas
@@ -708,11 +722,12 @@ Máximo 3 asesores. Sé selectivo.`;
       const { content, agentIds, diaryContext } = input;
       const userId = ctx.user.id;
 
-      const [vaultData, noteRows, actionPlanRows, userConvs] = await Promise.all([
+      const [vaultData, noteRows, actionPlanRows, userConvs, financeBlock] = await Promise.all([
         getVaultByUserId(userId),
         getNotesByUser(userId),
         getActionItemsByUser(userId),
         getConversationsByUser(userId),
+        loadFinanceAdvisorBlock(userId),
       ]);
       const apuntesCtx = buildAdvisorApuntesContext({ notes: noteRows, actionItems: actionPlanRows });
       const otherPlans = userConvs
@@ -749,6 +764,9 @@ Máximo 3 asesores. Sé selectivo.`;
           }
           if (apuntesCtx) {
             systemPrompt += `\n\n--- APUNTES DEL USUARIO (notas activas y planes en curso) ---\n${apuntesCtx}\n---`;
+          }
+          if (financeBlock) {
+            systemPrompt += `\n\n--- EXTRACTO BANCARIO IMPORTADO (.xls CaixaBank; confidencial) ---\n${financeBlock}\n---`;
           }
 
           // Historial reciente
@@ -1255,6 +1273,8 @@ const userDataRouter = router({
         actionItems: p.actionItems,
         diaryEntries: p.diaryEntries,
         memoryEntries: p.memoryEntries,
+        bankMovements: p.bankMovements,
+        bankImportState: p.bankImportState,
       });
       return { success: true };
     }),
@@ -1380,6 +1400,73 @@ const calendarRouter = router({
     }),
 });
 
+// ─── Router Finanzas (importación .xls CaixaBank) ─────────────────────────────
+const financeRouter = router({
+  status: protectedProcedure.query(async ({ ctx }) => {
+    const state = await getBankImportState(ctx.user.id);
+    if (!state) {
+      return {
+        hasData: false,
+        lastImportedAt: null as Date | null,
+        movementCount: 0,
+        accountHint: null as string | null,
+        fileName: null as string | null,
+      };
+    }
+    return {
+      hasData: true,
+      lastImportedAt: state.lastImportedAt,
+      movementCount: state.movementCount,
+      accountHint: state.accountHint,
+      fileName: state.fileName,
+    };
+  }),
+
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 250;
+      const rows = await getBankMovementsForUser(ctx.user.id);
+      return rows.slice(-limit).reverse();
+    }),
+
+  importCaixaXls: protectedProcedure
+    .input(
+      z.object({
+        fileBase64: z.string().min(24).max(8_000_000),
+        fileName: z.string().max(260).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const raw = Buffer.from(input.fileBase64, "base64");
+      if (raw.length > 4 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "El archivo supera 4 MB." });
+      }
+      const fn = (input.fileName ?? "").trim().toLowerCase();
+      if (fn && !fn.endsWith(".xls")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Usa el archivo .xls que descargas desde CaixaBankNow." });
+      }
+      const parsed = parseCaixaBankMovimientosXls(raw);
+      await replaceBankMovementsForUser(ctx.user.id, {
+        accountHint: parsed.accountHint,
+        fileName: input.fileName?.trim() || null,
+        movements: parsed.movements.map((m) => ({ ...m, source: parsed.format })),
+      });
+      const dates = parsed.movements.map((m) => m.bookedDate).sort();
+      return {
+        imported: parsed.movements.length,
+        accountHint: parsed.accountHint,
+        from: dates[0] ?? null,
+        to: dates[dates.length - 1] ?? null,
+      };
+    }),
+
+  clear: protectedProcedure.mutation(async ({ ctx }) => {
+    await clearBankImportForUser(ctx.user.id);
+    return { success: true };
+  }),
+});
+
 // ─── App Router ───────────────────────────────────────────────────────────────
 export const appRouter = router({
   system: systemRouter,
@@ -1392,6 +1479,7 @@ export const appRouter = router({
   agents: agentsRouter,
   diary: diaryRouter,
   notes: notesRouter,
+  finance: financeRouter,
   advisors: advisorsRouter,
   signals: signalsRouter,
   calendar: calendarRouter,
