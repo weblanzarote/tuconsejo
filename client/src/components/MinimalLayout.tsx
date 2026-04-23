@@ -65,10 +65,11 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
       <aside
         className={cn(
           "fixed lg:relative z-50 flex flex-col h-full",
-          "glass-panel bg-white/50 dark:bg-black/60 border-r-0 border-r-black/10 dark:border-r-white/10",
+          "backdrop-blur-xl border-r border-black/10 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)]",
           "w-52 transition-transform duration-200 ease-in-out",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
+        style={{ backgroundColor: theme === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}
       >
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-5 py-5 border-b border-sidebar-border">
@@ -164,7 +165,10 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
       {/* ── Contenido principal ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Header móvil */}
-        <header className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-black/10 dark:border-white/10 glass-panel bg-white/50 dark:bg-black/60 border-x-0 border-t-0 rounded-none">
+        <header 
+          className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-black/10 dark:border-white/10 backdrop-blur-xl border-x-0 border-t-0 rounded-none shadow-[0_8px_32px_rgba(0,0,0,0.1)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+          style={{ backgroundColor: theme === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)' }}
+        >
           <Button
             variant="ghost"
             size="icon"
