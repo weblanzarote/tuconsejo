@@ -11,9 +11,12 @@ import {
   deleteIntegrationById,
 } from "./db";
 import { getUserFromRequest } from "./auth-local";
-
-const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID ?? "").trim();
-const GOOGLE_CLIENT_SECRET = (process.env.GOOGLE_CLIENT_SECRET ?? "").trim();
+import {
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  assertGoogleOAuthClientConfigured,
+  describeGoogleTokenEndpointError,
+} from "./googleOAuthEnv";
 
 /** Debe coincidir exactamente con la URI registrada en Google Cloud (sin barra final extra). */
 function redirectUriFromRequest(req: Request): string {
@@ -65,6 +68,7 @@ export async function exchangeCodeForTokens(
   refresh_token: string;
   expires_in: number;
 }> {
+  assertGoogleOAuthClientConfigured();
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -76,17 +80,22 @@ export async function exchangeCodeForTokens(
       grant_type: "authorization_code",
     }).toString(),
   });
+  const body = await res.text();
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`[Google OAuth] exchangeCode failed: ${err}`);
+    throw new Error(`[Google OAuth] exchangeCode: ${describeGoogleTokenEndpointError(body)}`);
   }
-  return res.json();
+  return JSON.parse(body) as {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+  };
 }
 
 export async function refreshAccessToken(refreshToken: string): Promise<{
   access_token: string;
   expires_in: number;
 }> {
+  assertGoogleOAuthClientConfigured();
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -97,11 +106,11 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
       grant_type: "refresh_token",
     }).toString(),
   });
+  const body = await res.text();
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`[Google OAuth] refreshToken failed: ${err}`);
+    throw new Error(`[Google OAuth] ${describeGoogleTokenEndpointError(body)}`);
   }
-  return res.json();
+  return JSON.parse(body) as { access_token: string; expires_in: number };
 }
 
 export async function getValidAccessToken(userId: number): Promise<string> {
@@ -146,6 +155,13 @@ export function registerGoogleOAuthRoutes(app: Express) {
     const user = await getUserFromRequest(req);
     if (!user) {
       res.status(401).json({ error: "No autenticado" });
+      return;
+    }
+    try {
+      assertGoogleOAuthClientConfigured();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Google OAuth no configurado";
+      res.status(500).json({ error: msg });
       return;
     }
 

@@ -2,17 +2,21 @@
  * Proveedor de correo Google (Gmail API).
  */
 import type { UserIntegration } from "../../drizzle/schema";
+import {
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  assertGoogleOAuthClientConfigured,
+  describeGoogleTokenEndpointError,
+} from "../googleOAuthEnv";
 import { updateIntegrationTokens } from "../db";
 import type { MailProvider, MessageDetail, MessageMeta } from "./types";
 import { parseFrom } from "./types";
 
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
-
 async function refreshGoogleToken(integration: UserIntegration): Promise<string> {
   if (!integration.refreshToken) throw new Error("GOOGLE_NO_REFRESH_TOKEN");
+  assertGoogleOAuthClientConfigured();
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -24,8 +28,11 @@ async function refreshGoogleToken(integration: UserIntegration): Promise<string>
       grant_type: "refresh_token",
     }).toString(),
   });
-  if (!res.ok) throw new Error(`[Google] refreshToken failed: ${await res.text()}`);
-  const data = await res.json();
+  const errText = await res.text();
+  if (!res.ok) {
+    throw new Error(`[Google] ${describeGoogleTokenEndpointError(errText)}`);
+  }
+  const data = JSON.parse(errText) as { access_token: string; expires_in: number };
   const newExpiry = new Date(Date.now() + data.expires_in * 1000);
   await updateIntegrationTokens(integration.id, {
     accessToken: data.access_token,
