@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   RefreshCw,
@@ -39,6 +39,91 @@ function formatRelativeDate(date: Date | string | null | undefined): string {
 function containsDateTime(text: string): boolean {
   return /(\d{1,2}[:\h]\d{2}|\b(lunes|martes|miércoles|jueves|viernes|sábado|domingo|january|february|march|april|may|june|july|august|september|october|november|december)\b|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i.test(text);
 }
+
+// ─── Colores por cuenta (misma cuenta = mismo color en toda la página) ───────
+type AccountListItem = { id: number; provider: string; email: string; label: string | null };
+
+type AccountVisual = {
+  integrationId: number;
+  shortLabel: string;
+  title: string;
+  leftBorder: string;
+  rowBg: string;
+  dot: string;
+  provider: string;
+};
+
+const ACCENT_PALETTE = [
+  { left: "border-l-amber-500/80", bg: "bg-amber-500/[0.08] dark:bg-amber-400/[0.1]", dot: "bg-amber-500" },
+  { left: "border-l-sky-500/80", bg: "bg-sky-500/[0.08] dark:bg-sky-400/[0.1]", dot: "bg-sky-500" },
+  { left: "border-l-violet-500/80", bg: "bg-violet-500/[0.08] dark:bg-violet-400/[0.1]", dot: "bg-violet-500" },
+  { left: "border-l-emerald-500/80", bg: "bg-emerald-500/[0.08] dark:bg-emerald-400/[0.1]", dot: "bg-emerald-500" },
+  { left: "border-l-rose-500/80", bg: "bg-rose-500/[0.08] dark:bg-rose-400/[0.1]", dot: "bg-rose-500" },
+  { left: "border-l-orange-500/80", bg: "bg-orange-500/[0.08] dark:bg-orange-400/[0.1]", dot: "bg-orange-500" },
+] as const;
+
+function chipLabel(acc: AccountListItem): string {
+  const l = acc.label?.trim();
+  if (l) return l.length > 18 ? `${l.slice(0, 17)}…` : l;
+  const e = acc.email;
+  const at = e.indexOf("@");
+  if (at <= 0) return e.length > 20 ? `${e.slice(0, 19)}…` : e;
+  const user = e.slice(0, at);
+  return user.length > 14 ? `${user.slice(0, 13)}…` : user;
+}
+
+function tooltipLabel(acc: AccountListItem): string {
+  return acc.label?.trim() ? `${acc.label} — ${acc.email}` : acc.email;
+}
+
+function buildAccountVisualMap(accounts: AccountListItem[]): Map<number, AccountVisual> {
+  const sorted = [...accounts].sort((a, b) => a.id - b.id);
+  const map = new Map<number, AccountVisual>();
+  sorted.forEach((acc, i) => {
+    const pal = ACCENT_PALETTE[i % ACCENT_PALETTE.length];
+    map.set(acc.id, {
+      integrationId: acc.id,
+      shortLabel: chipLabel(acc),
+      title: tooltipLabel(acc),
+      leftBorder: pal.left,
+      rowBg: pal.bg,
+      dot: pal.dot,
+      provider: acc.provider,
+    });
+  });
+  return map;
+}
+
+/** Estilo visual de la cuenta de origen del correo (null = sin cuenta enlazada). */
+function resolveAccountVisual(
+  map: Map<number, AccountVisual>,
+  integrationId: number | null | undefined
+): AccountVisual | null {
+  if (integrationId == null) return null;
+  const v = map.get(integrationId);
+  if (v) return v;
+  return {
+    integrationId,
+    shortLabel: "?",
+    title: "Cuenta no encontrada o desconectada",
+    leftBorder: "border-l-muted-foreground/45",
+    rowBg: "bg-muted/30",
+    dot: "bg-muted-foreground/50",
+    provider: "imap",
+  };
+}
+
+function ProviderGlyph({ provider, className }: { provider: string; className?: string }) {
+  if (provider === "google") {
+    return <Mail className={cn("h-3.5 w-3.5 text-red-500/90 shrink-0", className)} aria-hidden />;
+  }
+  if (provider === "microsoft") {
+    return <Mail className={cn("h-3.5 w-3.5 text-sky-600 dark:text-sky-400 shrink-0", className)} aria-hidden />;
+  }
+  return <Inbox className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0", className)} aria-hidden />;
+}
+
+const PROVIDER_LABELS: Record<string, string> = { google: "Gmail", microsoft: "Outlook", imap: "IMAP" };
 
 // ─── Drawer de Respuesta ──────────────────────────────────────────────────────
 function ReplyDrawer({ signal, onClose, onSent }: {
@@ -224,6 +309,7 @@ function ConvertDrawer({ signal, onClose, onConverted }: {
 // ─── Fila compacta: registro secundario (no destacado por la IA) ───────────────
 function RegistroCorreoRow({
   signal,
+  accountVisual,
   onChanged,
 }: {
   signal: {
@@ -233,7 +319,9 @@ function RegistroCorreoRow({
     fromAddress: string;
     snippet: string;
     receivedAt?: Date | null;
+    integrationId?: number | null;
   };
+  accountVisual: AccountVisual | null;
   onChanged: () => void;
 }) {
   const utils = trpc.useUtils();
@@ -255,10 +343,29 @@ function RegistroCorreoRow({
   });
 
   return (
-    <div className="flex items-start gap-2 py-2 px-2 rounded-lg border border-transparent hover:border-border/80 hover:bg-muted/30 transition-colors text-left">
-      <Inbox className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 mt-0.5" />
+    <div
+      className={cn(
+        "flex items-start gap-2 py-2 pl-2 pr-2 rounded-lg border border-transparent border-l-[3px] hover:border-border/70 transition-colors text-left",
+        accountVisual?.leftBorder ?? "border-l-border/35",
+        accountVisual?.rowBg ?? "hover:bg-muted/25"
+      )}
+      title={accountVisual?.title}
+    >
+      <div className="flex flex-col items-center gap-0.5 shrink-0 mt-0.5">
+        <ProviderGlyph provider={accountVisual?.provider ?? "imap"} />
+      </div>
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-[11px] font-medium text-foreground/90 truncate leading-tight">{signal.subject || "(sin asunto)"}</p>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {accountVisual && (
+            <span
+              className="shrink-0 max-w-[5.5rem] truncate rounded px-1 py-px text-[9px] font-medium text-muted-foreground bg-background/70 border border-border/50"
+              title={accountVisual.title}
+            >
+              {accountVisual.shortLabel}
+            </span>
+          )}
+          <p className="text-[11px] font-medium text-foreground/90 truncate leading-tight min-w-0">{signal.subject || "(sin asunto)"}</p>
+        </div>
         <p className="text-[10px] text-muted-foreground truncate">
           {signal.fromName || signal.fromAddress}
           {signal.fromName && signal.fromAddress !== signal.fromName ? (
@@ -296,10 +403,31 @@ function RegistroCorreoRow({
 }
 
 // ─── Tarjeta de correo ────────────────────────────────────────────────────────
-function CorreoCard({ signal, variant = "pending", onIgnored, onReplied, onConverted }: {
-  signal: { id: number; subject: string; fromName: string; fromAddress: string; snippet: string; fullBody?: string | null; receivedAt?: Date | null; draftReply?: string | null; classifierUserFeedback?: "spot_on" | "not_important" | null };
+function CorreoCard({
+  signal,
+  accountVisual,
+  variant = "pending",
+  onIgnored,
+  onReplied,
+  onConverted,
+}: {
+  signal: {
+    id: number;
+    subject: string;
+    fromName: string;
+    fromAddress: string;
+    snippet: string;
+    fullBody?: string | null;
+    receivedAt?: Date | null;
+    draftReply?: string | null;
+    classifierUserFeedback?: "spot_on" | "not_important" | null;
+    integrationId?: number | null;
+  };
+  accountVisual: AccountVisual | null;
   variant?: "pending" | "archived";
-  onIgnored: () => void; onReplied: () => void; onConverted: () => void;
+  onIgnored: () => void;
+  onReplied: () => void;
+  onConverted: () => void;
 }) {
   const [showReplyDrawer, setShowReplyDrawer] = useState(false);
   const [showConvertDrawer, setShowConvertDrawer] = useState(false);
@@ -345,7 +473,29 @@ function CorreoCard({ signal, variant = "pending", onIgnored, onReplied, onConve
 
   return (
     <>
-      <div className="border border-border rounded-xl p-4 space-y-3 bg-background hover:border-foreground/20 transition-colors">
+      <div
+        className={cn(
+          "border rounded-xl p-4 space-y-3 transition-colors border-l-[3px] hover:border-foreground/20",
+          "border-border bg-background",
+          accountVisual?.leftBorder ?? "border-l-border/35",
+          accountVisual?.rowBg
+        )}
+        title={accountVisual?.title}
+      >
+        {accountVisual && (
+          <div className="flex items-center gap-2 -mt-0.5 mb-1">
+            <ProviderGlyph provider={accountVisual.provider} className="h-4 w-4" />
+            <span
+              className="text-[10px] font-medium text-muted-foreground truncate max-w-[55%] rounded border border-border/60 bg-muted/30 px-1.5 py-0.5"
+              title={accountVisual.title}
+            >
+              {accountVisual.shortLabel}
+            </span>
+            <span className="text-[10px] text-muted-foreground/70">
+              {PROVIDER_LABELS[accountVisual.provider] ?? accountVisual.provider}
+            </span>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground truncate">{signal.subject}</p>
@@ -731,7 +881,7 @@ export default function CorreosPage() {
   const pendingSignals = signals ?? [];
   const hasAccounts = accounts.length > 0;
 
-  const PROVIDER_LABELS: Record<string, string> = { google: "Gmail", microsoft: "Outlook", imap: "IMAP" };
+  const accountVisualMap = useMemo(() => buildAccountVisualMap(accounts), [accounts]);
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
@@ -920,6 +1070,7 @@ export default function CorreosPage() {
                 <CorreoCard
                   key={signal.id}
                   signal={signal as any}
+                  accountVisual={resolveAccountVisual(accountVisualMap, (signal as { integrationId?: number | null }).integrationId)}
                   variant={activeTab}
                   onIgnored={() => utils.signals.list.invalidate()}
                   onReplied={() => utils.signals.list.invalidate()}
@@ -951,11 +1102,33 @@ export default function CorreosPage() {
                   <p className="text-[10px] text-muted-foreground/80 px-2 py-1.5 leading-relaxed">
                     Misma bandeja sincronizada, sin notificación. Si ves algo relevante, pulsa Importante y pasa arriba.
                   </p>
+                  {accounts.length > 1 && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 px-2 pb-1.5 text-[10px] text-muted-foreground border-b border-border/40">
+                      <span className="text-muted-foreground/70 shrink-0">Cuentas:</span>
+                      {[...accounts].sort((a, b) => a.id - b.id).map((acc) => {
+                        const v = accountVisualMap.get(acc.id);
+                        if (!v) return null;
+                        return (
+                          <span key={acc.id} className="inline-flex items-center gap-1 min-w-0">
+                            <span className={cn("inline-block h-2 w-2 rounded-full shrink-0", v.dot)} aria-hidden />
+                            <span className="truncate max-w-[10rem]" title={v.title}>
+                              {v.shortLabel}
+                            </span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                   {registryLoading ? (
                     <div className="py-6 text-center text-xs text-muted-foreground">Cargando…</div>
                   ) : (
                     registrySignals.map((s) => (
-                      <RegistroCorreoRow key={s.id} signal={s as any} onChanged={() => utils.signals.list.invalidate()} />
+                      <RegistroCorreoRow
+                        key={s.id}
+                        signal={s as any}
+                        accountVisual={resolveAccountVisual(accountVisualMap, (s as { integrationId?: number | null }).integrationId)}
+                        onChanged={() => utils.signals.list.invalidate()}
+                      />
                     ))
                   )}
                 </div>

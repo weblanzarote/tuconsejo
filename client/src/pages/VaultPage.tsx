@@ -27,7 +27,9 @@ import {
   Upload,
   Bell,
   Send,
+  ExternalLink,
 } from "lucide-react";
+import { TELEGRAM_BOT_DISPLAY_NAME, TELEGRAM_BOT_USERNAME } from "@shared/const";
 import { useEffect, useState } from "react";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 import { toast } from "sonner";
@@ -504,6 +506,12 @@ function NotificationsSection() {
   const [dailyTime, setDailyTime] = useState("09:00");
   const [enabled, setEnabled] = useState(true);
 
+  const botUsername =
+    (import.meta.env.VITE_TELEGRAM_BOT_USERNAME as string | undefined)?.trim().replace(/^@/, "") ||
+    TELEGRAM_BOT_USERNAME;
+  /** Enlace oficial: al abrir, Telegram ofrece «Iniciar» y envía /start al bot (con parámetro opcional). */
+  const telegramStartLink = `https://t.me/${botUsername}?start=app`;
+
   useEffect(() => {
     if (!data) return;
     setChatId(data.telegramChatId ?? "");
@@ -556,18 +564,32 @@ function NotificationsSection() {
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer hover:text-foreground">Solo quien instala o aloja la app (una vez)</summary>
         <p className="mt-2 leading-relaxed">
-          El <strong>token del bot</strong> va en el servidor (<code>TELEGRAM_BOT_TOKEN</code> en <code>.env</code>), no aquí. Eso lo hace quien despliega Consejo Sinérgico: crea el bot con <strong>@BotFather</strong> (<code>/newbot</code>), guarda el token, reinicia el servidor y comunica a los usuarios el <strong>nombre del bot</strong> en Telegram (p. ej. <code>@TuBotOficial</code>).
+          El <strong>token del bot</strong> va en el servidor (<code>TELEGRAM_BOT_TOKEN</code> en <code>.env</code>), no aquí. Eso lo hace quien despliega Consejo Sinérgico: crea el bot con <strong>@BotFather</strong> (<code>/newbot</code>), guarda el token, reinicia el servidor y comunica a los usuarios el bot en Telegram: <strong>{TELEGRAM_BOT_DISPLAY_NAME}</strong> (<code>@{botUsername}</code>).
         </p>
       </details>
 
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer hover:text-foreground">Cómo conectar tu Telegram (cada usuario)</summary>
-        <ol className="list-decimal ml-5 mt-2 space-y-1.5 leading-relaxed">
+        <div className="mt-2 space-y-2">
+          <a
+            href={telegramStartLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-80" />
+            Abrir <strong className="font-semibold mx-0.5">{TELEGRAM_BOT_DISPLAY_NAME}</strong> (@{botUsername}) en Telegram
+          </a>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Ese enlace abre el chat con <code>@{botUsername}</code>. Pulsa <strong>Iniciar</strong> en Telegram: eso equivale a <code>/start</code> (no hace falta escribirlo a mano).
+          </p>
+        </div>
+        <ol className="list-decimal ml-5 mt-3 space-y-1.5 leading-relaxed">
           <li>
-            En Telegram, abre el <strong>bot de esta aplicación</strong> (te lo tiene que decir quien te dio acceso o quien administra el servidor).
+            Usa el bot <strong>{TELEGRAM_BOT_DISPLAY_NAME}</strong> en Telegram: <code>@{botUsername}</code> (o el enlace de arriba).
           </li>
           <li>
-            Pulsa <strong>Iniciar</strong> o envía <code>/start</code> al bot. Así Telegram sabe que quieres recibir mensajes de él.
+            Pulsa <strong>Iniciar</strong> en la conversación con el bot (o envía <code>/start</code> si prefieres escribirlo).
           </li>
           <li>
             Copia tu <strong>ID numérico</strong>: la forma más sencilla es escribir a un bot público como <strong>@userinfobot</strong> y copiar el número que te muestra (en un chat privado contigo suele ser el mismo valor que hace falta como chat_id aquí).
