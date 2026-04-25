@@ -78,6 +78,19 @@ import { testImapConnection } from "./providers/imap";
 import { encrypt } from "./crypto-utils";
 import { formatYyyyMmDdInTimeZone } from "./dateTz";
 
+function advisorModelForAgent(agentId: AgentId): string | null {
+  // Solo para los asesores (no encuestador / sala de juntas).
+  const isAdvisor =
+    agentId === "economia" ||
+    agentId === "carrera" ||
+    agentId === "salud" ||
+    agentId === "relaciones" ||
+    agentId === "familia" ||
+    agentId === "guardian";
+  if (!isAdvisor) return null;
+  return (process.env.OPENAI_ADVISORS_MODEL ?? "gpt-5.5").trim() || "gpt-5.5";
+}
+
 const AgentIdSchema = z.enum([
   "economia",
   "carrera",
@@ -294,7 +307,11 @@ const chatRouter = router({
       }
 
       // Llamar a la IA
-      const response = await invokeLLM({ messages: llmMessages });
+      const advisorModel = advisorModelForAgent(agentId as AgentId);
+      const response = await invokeLLM({
+        ...(advisorModel ? { model: advisorModel } : {}),
+        messages: llmMessages,
+      });
       const rawContent = response.choices[0]?.message?.content;
       const assistantContent = typeof rawContent === "string" ? rawContent : "Lo siento, no pude generar una respuesta.";
 
@@ -330,6 +347,7 @@ const chatRouter = router({
         const allMessages = await getMessagesByConversation(conv.id, 30);
         const summaryPrompt = `Resume en 3-5 puntos clave la siguiente conversación entre el usuario y el asesor ${agentId}. Enfócate en los temas principales, decisiones tomadas y compromisos adquiridos:\n\n${allMessages.map((m) => `${m.role}: ${m.content}`).join("\n\n")}`;
         const summaryResponse = await invokeLLM({
+          ...(advisorModel ? { model: advisorModel } : {}),
           messages: [
             { role: "system", content: "Eres un asistente que resume conversaciones de forma concisa y estructurada en español." },
             { role: "user", content: summaryPrompt },

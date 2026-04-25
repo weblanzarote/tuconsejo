@@ -51,6 +51,9 @@ OPENAI_API_KEY=$openai
 # Modelo solo para clasificar correos entrantes (barato); el chat usa OPENAI_MODEL
 # OPENAI_EMAIL_CLASSIFIER_MODEL=gpt-5.4-nano
 
+# Modelo solo para los asesores (economía/carrera/salud/relaciones/familia/guardián)
+# OPENAI_ADVISORS_MODEL=gpt-5.5
+
 # Opcionales Manus / Forge (si los usas)
 # VITE_APP_ID=
 # OAUTH_SERVER_URL=
