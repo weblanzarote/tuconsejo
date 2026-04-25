@@ -289,7 +289,7 @@ export default function AsesoresPage() {
             : "Los asesores también tienen en cuenta tu diario de hoy."
           }
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Link href="/notas">
             <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
               Notas →
@@ -303,6 +303,11 @@ export default function AsesoresPage() {
           <Link href="/boardroom">
             <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
               Sala de Juntas →
+            </span>
+          </Link>
+          <Link href="/chat/economia">
+            <span className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2">
+              Chat con asesores →
             </span>
           </Link>
         </div>

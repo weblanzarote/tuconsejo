@@ -14,13 +14,16 @@ import {
   Wallet,
   Sun,
   Moon,
+  MessageCircle,
+  MessageCircleOff,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useInstallPrompt } from "@/hooks/useInstallPrompt";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Link, useLocation } from "wouter";
 import { Button } from "./ui/button";
 import CommandPalette from "./CommandPalette";
+import ChatFab, { readChatFabVisible, setChatFabVisible } from "./ChatFab";
 
 const NAV_ITEMS = [
   { href: "/hoy", label: "Hoy", icon: BookOpen },
@@ -49,6 +52,16 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
   const initials = user?.name
     ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
     : "?";
+
+  const [fabVisible, setFabVisibleState] = useState<boolean>(() => readChatFabVisible());
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setFabVisibleState(Boolean((e as CustomEvent<boolean>).detail));
+    };
+    window.addEventListener("tuconsejo.chatFab.visibility", handler);
+    return () => window.removeEventListener("tuconsejo.chatFab.visibility", handler);
+  }, []);
+  const toggleFab = () => setChatFabVisible(!fabVisible);
 
   return (
     <div className="flex h-screen bg-transparent overflow-hidden text-foreground">
@@ -131,6 +144,23 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
             </button>
           )}
           <button
+            onClick={toggleFab}
+            className="flex items-center gap-2 px-3 py-1.5 w-full rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors cursor-pointer"
+            aria-pressed={fabVisible}
+          >
+            {fabVisible ? (
+              <>
+                <MessageCircleOff className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>Ocultar chat flotante</span>
+              </>
+            ) : (
+              <>
+                <MessageCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                <span>Mostrar chat flotante</span>
+              </>
+            )}
+          </button>
+          <button
             onClick={() => { navigate("/perfil"); setMobileOpen(false); }}
             className="flex items-center gap-2.5 px-3 py-1.5 min-w-0 w-full rounded-md hover:bg-accent/60 transition-colors cursor-pointer group"
           >
@@ -186,6 +216,7 @@ export default function MinimalLayout({ children }: MinimalLayoutProps) {
         <main className="flex-1 overflow-y-auto custom-scrollbar">
           {children}
         </main>
+        <ChatFab />
       </div>
     </div>
   );

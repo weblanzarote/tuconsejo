@@ -610,6 +610,185 @@ const diaryRouter = router({
     .query(async ({ ctx, input }) => {
       return searchDiaryEntries(ctx.user.id, input.query);
     }),
+
+  generateDraft: protectedProcedure
+    .input(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        timezone: z.string().min(1).max(64).optional(),
+        locationNotes: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(200),
+              notes: z.string().max(500).optional(),
+            })
+          )
+          .max(20)
+          .optional(),
+        events: z
+          .array(
+            z.object({
+              title: z.string().max(300),
+              location: z.string().max(300).optional(),
+              startIso: z.string().max(40).optional(),
+            })
+          )
+          .max(30)
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+      const tz = input.timezone?.trim() || "UTC";
+      const targetDate = input.date;
+
+      // 1) Correos recibidos ese día (limitamos a 20 más relevantes)
+      const allEmails = await getEmailSignalsByUser(userId);
+      const dayEmails = allEmails
+        .filter((e) => {
+          const ts = e.receivedAt instanceof Date ? e.receivedAt.getTime() : (e.receivedAt as number | null);
+          if (!ts) return false;
+          return formatYyyyMmDdInTimeZone(new Date(ts), tz) === targetDate;
+        })
+        .slice(0, 20);
+
+      // 2) Tareas completadas ese día (o creadas si no hay completedAt)
+      const allTasks = await getActionItemsByUser(userId);
+      const dayTasks = allTasks
+        .filter((t) => {
+          if (t.status !== "completada") return false;
+          const ms =
+            t.completedAt instanceof Date
+              ? t.completedAt.getTime()
+              : typeof t.completedAt === "number"
+                ? t.completedAt
+                : null;
+          if (!ms) return false;
+          return formatYyyyMmDdInTimeZone(new Date(ms), tz) === targetDate;
+        })
+        .slice(0, 30);
+
+      // 3) Eventos del día (los pasa el cliente desde calendar.listUpcoming, ya filtrados)
+      const dayEvents = (input.events ?? []).slice(0, 15);
+
+      // 4) Lugares con notas (combinación de eventos con location + entrada manual del diario)
+      const locationNotes = (input.locationNotes ?? []).slice(0, 15);
+
+      // Si no hay nada, devolvemos un mensaje en blanco amable en vez de gastar tokens
+      if (
+        dayEmails.length === 0 &&
+        dayTasks.length === 0 &&
+        dayEvents.length === 0 &&
+        locationNotes.length === 0
+      ) {
+        return {
+          draft: "",
+          sources: { emails: 0, tasks: 0, events: 0, locations: 0 },
+          empty: true as const,
+        };
+      }
+
+      const formatTime = (iso?: string) => {
+        if (!iso) return "";
+        try {
+          return new Intl.DateTimeFormat("es-ES", {
+            timeZone: tz,
+            hour: "2-digit",
+            minute: "2-digit",
+          }).format(new Date(iso));
+        } catch {
+          return "";
+        }
+      };
+
+      const sections: string[] = [];
+      sections.push(`Fecha: ${targetDate} (zona horaria del usuario: ${tz})`);
+      if (dayEmails.length > 0) {
+        sections.push(
+          `\nCorreos recibidos hoy (${dayEmails.length}):\n` +
+            dayEmails
+              .map((e) => {
+                const from = e.fromName || e.fromAddress || "remitente desconocido";
+                const subject = e.subject || "(sin asunto)";
+                const snip = (e.snippet || "").slice(0, 140).replace(/\s+/g, " ").trim();
+                return `- De ${from}: "${subject}"${snip ? ` — ${snip}` : ""}`;
+              })
+              .join("\n")
+        );
+      }
+      if (dayTasks.length > 0) {
+        sections.push(
+          `\nTareas completadas hoy (${dayTasks.length}):\n` +
+            dayTasks.map((t) => `- ${t.title}${t.description ? ` (${t.description.slice(0, 100)})` : ""}`).join("\n")
+        );
+      }
+      if (dayEvents.length > 0) {
+        sections.push(
+          `\nEventos del calendario hoy (${dayEvents.length}):\n` +
+            dayEvents
+              .map((ev) => {
+                const time = formatTime(ev.startIso);
+                const place = ev.location ? ` — en ${ev.location}` : "";
+                return `- ${time ? `${time} ` : ""}${ev.title}${place}`;
+              })
+              .join("\n")
+        );
+      }
+      if (locationNotes.length > 0) {
+        sections.push(
+          `\nLugares y qué hizo el usuario en cada uno (según el propio usuario):\n` +
+            locationNotes
+              .map((l) => `- ${l.name}${l.notes ? `: ${l.notes}` : " (sin nota)"}`)
+              .join("\n")
+        );
+      }
+
+      const userMessage = sections.join("\n");
+
+      const systemPrompt =
+        "Eres un asistente que escribe entradas de diario personal en primera persona, en español, con tono natural, reflexivo y honesto. " +
+        "Recibirás señales objetivas del día (correos, tareas, eventos, lugares) y, si las hay, notas del usuario sobre cada lugar. " +
+        "Genera un texto continuo de entre 4 y 10 frases. No inventes hechos no dados. No uses listas, viñetas ni encabezados. " +
+        "No te dirijas al usuario en segunda persona: escribe como si fuese el propio usuario quien anota su día. " +
+        "Si los datos son escasos, escribe poco; mejor breve que rellenar de paja.";
+
+      const model = (process.env.OPENAI_ADVISORS_MODEL ?? "gpt-5.5").trim() || "gpt-5.5";
+
+      try {
+        const result = await invokeLLM({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+          ],
+          maxTokens: 800,
+        });
+        const draftRaw = result.choices?.[0]?.message?.content ?? "";
+        const draft = typeof draftRaw === "string" ? draftRaw.trim() : "";
+        if (!draft) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "El modelo no devolvió contenido.",
+          });
+        }
+        return {
+          draft,
+          sources: {
+            emails: dayEmails.length,
+            tasks: dayTasks.length,
+            events: dayEvents.length,
+            locations: locationNotes.length,
+          },
+          empty: false as const,
+        };
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `No se pudo generar el borrador: ${(err as Error).message}`,
+        });
+      }
+    }),
 });
 
 // ─── Router de Notas ──────────────────────────────────────────────────────────
@@ -1434,6 +1613,73 @@ const calendarRouter = router({
       const payload = { events, accounts };
       calendarCache.set(userId, { expires: Date.now() + CALENDAR_CACHE_MS, data: payload });
       return payload;
+    }),
+
+  // Lista eventos de un día concreto (incluyendo los ya pasados de hoy).
+  listForDay: protectedProcedure
+    .input(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        timezone: z.string().min(1).max(64),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+      const integrations = await getIntegrationsByUser(userId);
+      const calendarIntegrations = integrations.filter(
+        (i) => i.provider === "google" || i.provider === "microsoft"
+      );
+      if (!calendarIntegrations.length) {
+        return { events: [] as any[], accounts: [] as any[] };
+      }
+      // Día completo en la zona horaria del usuario. Margen ±2 h por DST y ediciones tardías.
+      const dayStartLocal = new Date(`${input.date}T00:00:00`);
+      const dayEndLocal = new Date(dayStartLocal.getTime() + 24 * 3600 * 1000);
+      // Como Date interpreta la fecha en el TZ del servidor, ampliamos el rango y luego
+      // dejamos que el cliente filtre por zona del usuario si lo necesita.
+      const fromIso = new Date(dayStartLocal.getTime() - 14 * 3600 * 1000).toISOString();
+      const toIso = new Date(dayEndLocal.getTime() + 14 * 3600 * 1000).toISOString();
+
+      const results = await Promise.all(
+        calendarIntegrations.map(async (integration) => {
+          try {
+            const events = await listUpcomingEventsForIntegration(integration, fromIso, toIso, 50);
+            return events.map((e) => ({
+              ...e,
+              integrationId: integration.id,
+              accountLabel: integration.label || integration.connectedEmail,
+              provider: integration.provider,
+            }));
+          } catch (err: any) {
+            console.warn(`[Calendar] ${integration.connectedEmail} listForDay falló:`, err?.message ?? err);
+            return [];
+          }
+        })
+      );
+
+      // Filtramos a la fecha civil del usuario
+      const tz = input.timezone.trim() || "UTC";
+      const events = results
+        .flat()
+        .filter((ev: any) => {
+          const startIso: string | undefined = ev.start;
+          if (!startIso) return false;
+          try {
+            return formatYyyyMmDdInTimeZone(new Date(startIso), tz) === input.date;
+          } catch {
+            return false;
+          }
+        })
+        .sort((a: any, b: any) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+
+      const accounts = calendarIntegrations.map((i) => ({
+        id: i.id,
+        label: i.label,
+        connectedEmail: i.connectedEmail,
+        provider: i.provider,
+      }));
+
+      return { events, accounts };
     }),
 });
 

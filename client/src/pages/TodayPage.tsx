@@ -3,6 +3,10 @@ import { useLocalAuth } from "@/hooks/useLocalAuth";
 import { formatYyyyMmDdInTimeZone, getDetectedTimeZone } from "@/lib/dateTz";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DiaryEntry from "@/components/DiaryEntry";
+import DiaryGenerateDialog, {
+  type DiaryLocationSuggestion,
+  type DiaryLocationAnswer,
+} from "@/components/DiaryGenerateDialog";
 import {
   ChevronDown,
   ChevronUp,
@@ -14,6 +18,7 @@ import {
   Circle,
   X,
   CalendarDays,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -221,6 +226,18 @@ export default function TodayPage() {
   const utils = trpc.useUtils();
   const { data: entry, isLoading } = trpc.diary.getEntry.useQuery({ date: today });
   const { data: recentEntries } = trpc.diary.listRecent.useQuery({ limit: 8 });
+
+  // ── Generación de diario con IA ─────────────────────────────────────────
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<DiaryLocationSuggestion[]>([]);
+  const [aiPreviousDraft, setAiPreviousDraft] = useState<string | null>(null);
+  const [aiCooldownUntil, setAiCooldownUntil] = useState(0);
+  const generateDraftMutation = trpc.diary.generateDraft.useMutation();
+  const dayEventsQuery = trpc.calendar.listForDay.useQuery(
+    { date: today, timezone: tz },
+    { enabled: false, retry: false }
+  );
+
   const upsert = trpc.diary.upsertEntry.useMutation({
     onSuccess: (saved) => {
       utils.diary.getEntry.setData({ date: today }, saved);
@@ -423,6 +440,119 @@ export default function TodayPage() {
     setDraft(newContent);
   };
 
+  // ── IA: abrir cuestionario de lugares y luego generar borrador ──────────
+  const aiCooldownRemaining = Math.max(0, Math.ceil((aiCooldownUntil - Date.now()) / 1000));
+  const isGenerating = generateDraftMutation.isPending || dayEventsQuery.isFetching;
+
+  const openAiDialog = useCallback(async () => {
+    if (aiCooldownRemaining > 0 || isGenerating) return;
+
+    if (draft.trim().length > 0) {
+      const confirmReplace = window.confirm(
+        "Ya hay texto en la entrada de hoy. ¿Generar un borrador con IA y reemplazar el texto actual? Podrás recuperar el original con 'Deshacer'."
+      );
+      if (!confirmReplace) return;
+    }
+
+    let eventLocations: DiaryLocationSuggestion[] = [];
+    try {
+      const result = await dayEventsQuery.refetch();
+      const events = (result.data?.events ?? []) as Array<{
+        title?: string;
+        location?: string;
+        start?: string;
+      }>;
+      eventLocations = events
+        .filter((ev) => ev.location && ev.location.trim().length > 0)
+        .map((ev) => ({
+          name: ev.location!.trim(),
+          source: "event" as const,
+          startIso: ev.start,
+        }));
+    } catch {
+      // El cuestionario aún se abre con los lugares manuales
+    }
+
+    const manualLocations: DiaryLocationSuggestion[] = savedLocations.map((name) => ({
+      name,
+      source: "manual" as const,
+    }));
+
+    setAiSuggestions([...eventLocations, ...manualLocations]);
+    setAiDialogOpen(true);
+  }, [aiCooldownRemaining, isGenerating, draft, dayEventsQuery, savedLocations]);
+
+  const handleAiConfirm = useCallback(
+    async (answers: DiaryLocationAnswer[]) => {
+      try {
+        // Eventos del día (recuperados del cache de la query)
+        const eventsCache = dayEventsQuery.data?.events ?? [];
+        const events = (eventsCache as Array<{ title?: string; location?: string; start?: string }>).map((ev) => ({
+          title: ev.title || "",
+          location: ev.location || undefined,
+          startIso: ev.start || undefined,
+        }));
+
+        const result = await generateDraftMutation.mutateAsync({
+          date: today,
+          timezone: tz,
+          locationNotes: answers.map((a) => ({ name: a.name, notes: a.notes })),
+          events,
+        });
+
+        if (result.empty) {
+          toast.info(
+            "No hay correos, tareas, eventos ni lugares para hoy. Escribe algo manualmente y vuelve a intentarlo."
+          );
+          setAiDialogOpen(false);
+          return;
+        }
+
+        setAiPreviousDraft(draft);
+        setDraft(result.draft);
+
+        // Persistimos los lugares con notas en locationData del diario
+        const newLocations = answers.map((a) => a.name);
+        if (newLocations.length > 0) {
+          const merged = Array.from(new Set([...savedLocations, ...newLocations]));
+          setSavedLocations(merged);
+        }
+
+        const { sources } = result;
+        toast.success(
+          `Borrador generado · ${sources.emails} correos · ${sources.tasks} tareas · ${sources.events} eventos · ${sources.locations} lugares`
+        );
+        setAiCooldownUntil(Date.now() + 60_000);
+        setAiDialogOpen(false);
+      } catch (err) {
+        toast.error(`No se pudo generar el borrador: ${(err as Error).message ?? "error desconocido"}`);
+      }
+    },
+    [today, tz, draft, savedLocations, generateDraftMutation, dayEventsQuery.data]
+  );
+
+  const undoAiDraft = useCallback(() => {
+    if (aiPreviousDraft == null) return;
+    setDraft(aiPreviousDraft);
+    setAiPreviousDraft(null);
+    toast.info("Borrador IA descartado.");
+  }, [aiPreviousDraft]);
+
+  // Tick para refrescar el cooldown visualmente
+  const [, setCooldownTick] = useState(0);
+  useEffect(() => {
+    if (aiCooldownUntil <= Date.now()) return;
+    const id = setInterval(() => {
+      if (Date.now() >= aiCooldownUntil) {
+        setAiCooldownUntil(0);
+        clearInterval(id);
+      } else {
+        setCooldownTick((n) => n + 1);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [aiCooldownUntil]);
+
   // Auto-guardado periódico cada 60 s — garantiza que la entrada esté en el servidor
   // antes de cualquier cierre de pestaña, navegación o apertura de la PWA.
   useEffect(() => {
@@ -459,6 +589,13 @@ export default function TodayPage() {
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-8">
+      <DiaryGenerateDialog
+        open={aiDialogOpen}
+        onOpenChange={setAiDialogOpen}
+        locations={aiSuggestions}
+        isGenerating={generateDraftMutation.isPending}
+        onConfirm={handleAiConfirm}
+      />
       {/* ── Cabecera: fecha + zona + último guardado visible ── */}
       <div className="space-y-2">
         <h1 className="font-diary text-3xl text-foreground capitalize">{formatDateLong(today)}</h1>
@@ -608,23 +745,49 @@ export default function TodayPage() {
             />
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-1 border-t border-border/40">
-              <p className="text-[11px] text-muted-foreground order-2 sm:order-1">
+              <p className="text-[11px] text-muted-foreground order-3 sm:order-1">
                 <kbd className="rounded border border-border/60 px-1 py-0.5 font-mono text-[10px]">Ctrl</kbd>+
                 <kbd className="rounded border border-border/60 px-1 py-0.5 font-mono text-[10px]">Intro</kbd> para guardar
               </p>
-              <button
-                type="button"
-                onClick={() => void saveDiary()}
-                disabled={saveStatus === "saving"}
-                className="order-1 sm:order-2 inline-flex w-full sm:w-auto shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-foreground/10 px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-foreground/15 disabled:opacity-60"
-              >
-                {saveStatus === "saving" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
+              <div className="flex flex-col sm:flex-row gap-2 order-1 sm:order-2">
+                {aiPreviousDraft != null && (
+                  <button
+                    type="button"
+                    onClick={undoAiDraft}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-background/40 px-3 py-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    title="Restaurar el texto anterior a la generación con IA"
+                  >
+                    Deshacer IA
+                  </button>
                 )}
-                Guardar entrada
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void openAiDialog()}
+                  disabled={isGenerating || aiCooldownRemaining > 0}
+                  className="inline-flex w-full sm:w-auto shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-background/40 px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-foreground/10 disabled:opacity-60"
+                  title="Genera un borrador a partir de tus correos, tareas y lugares de hoy"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  {aiCooldownRemaining > 0 ? `Espera ${aiCooldownRemaining}s` : "Generar con IA"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveDiary()}
+                  disabled={saveStatus === "saving"}
+                  className="inline-flex w-full sm:w-auto shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-foreground/10 px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-foreground/15 disabled:opacity-60"
+                >
+                  {saveStatus === "saving" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Guardar entrada
+                </button>
+              </div>
             </div>
 
             {/* Preguntas de apoyo */}
