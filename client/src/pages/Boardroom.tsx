@@ -351,7 +351,11 @@ function DebatingIndicator({ label }: { label?: string }) {
 
 // ─── Página principal de Sala de Juntas ───────────────────────────────────────
 export default function Boardroom() {
-  const [query, setQuery] = useState("");
+  const contextoParam =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("contexto") ?? ""
+      : "";
+  const [query, setQuery] = useState(contextoParam);
   const [debating, setDebating] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [animatingMsgId, setAnimatingMsgId] = useState<number | null>(null);

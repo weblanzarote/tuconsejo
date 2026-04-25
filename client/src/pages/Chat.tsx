@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
-import { AGENT_COLORS, AGENT_EMOJIS, AGENT_NAMES, CHAT_SELECTOR_AGENTS, type AgentId } from "@/lib/agents";
+import { AGENT_COLORS, AGENT_EMOJIS, AGENT_NAMES, CHAT_SELECTOR_AGENTS, CHAT_TABS, type AgentId } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 import {
   CheckCircle2,
@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 
@@ -32,9 +32,10 @@ function AgentSelector({
 }) {
   return (
     <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
-      {CHAT_SELECTOR_AGENTS.map((agentId) => {
+      {CHAT_TABS.map((agentId) => {
         const color = AGENT_COLORS[agentId];
         const isSelected = selectedAgent === agentId;
+        const label = agentId === "sala_juntas" ? "Todos" : AGENT_NAMES[agentId];
         return (
           <button
             key={agentId}
@@ -56,7 +57,7 @@ function AgentSelector({
             }
           >
             <span>{AGENT_EMOJIS[agentId]}</span>
-            <span>{AGENT_NAMES[agentId]}</span>
+            <span>{label}</span>
           </button>
         );
       })}
@@ -287,6 +288,19 @@ function parseChatAgentId(raw?: string): AgentId {
 
 export default function Chat() {
   const params = useParams<{ agentId?: string }>();
+  const [, navigate] = useLocation();
+
+  // Si la URL es /chat/sala_juntas (o cualquier alias "todos"), redirigimos a /boardroom
+  // preservando el ?contexto= si lo hay. Los planes de acción de la Sala de Juntas
+  // tienen agentId="sala_juntas" y antes acababan en Alejandro por el fallback.
+  useEffect(() => {
+    const raw = params.agentId;
+    if (raw === "sala_juntas" || raw === "todos") {
+      const search = window.location.search;
+      navigate(`/boardroom${search}`, { replace: true });
+    }
+  }, [params.agentId, navigate]);
+
   const [selectedAgent, setSelectedAgent] = useState<AgentId>(() => parseChatAgentId(params.agentId));
   const contextoParam = new URLSearchParams(window.location.search).get("contexto");
   const [inputValue, setInputValue] = useState(contextoParam ?? "");
@@ -295,6 +309,14 @@ export default function Chat() {
   useEffect(() => {
     setSelectedAgent(parseChatAgentId(params.agentId));
   }, [params.agentId]);
+
+  const handleSelectTab = (id: AgentId) => {
+    if (id === "sala_juntas") {
+      navigate("/boardroom");
+      return;
+    }
+    setSelectedAgent(id);
+  };
   const [showActionPanel, setShowActionPanel] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
@@ -403,11 +425,20 @@ export default function Chat() {
   const totalActive = inProgressItems.length + pendingItems.length;
   const totalItems = inProgressItems.length + pendingItems.length + completedItems.length;
 
+  // Mientras se procesa el redirect a /boardroom, no renderizamos la UI de Alejandro
+  if (params.agentId === "sala_juntas" || params.agentId === "todos") {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* ── Selector de agente ── */}
       <div className="px-4 pt-4 pb-3 border-b border-border">
-        <AgentSelector selectedAgent={selectedAgent} onSelect={setSelectedAgent} />
+        <AgentSelector selectedAgent={selectedAgent} onSelect={handleSelectTab} />
       </div>
 
       {/* ── Contenido principal dividido ── */}

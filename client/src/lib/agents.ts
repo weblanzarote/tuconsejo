@@ -76,6 +76,9 @@ export const MAIN_AGENTS: AgentId[] = [
 /** Asesores con chat individual (incluye a Lucía, la encuestadora) */
 export const CHAT_SELECTOR_AGENTS: AgentId[] = [...MAIN_AGENTS, "encuestador"];
 
+/** Tabs del selector de chat: incluye "Todos" (sala_juntas) al inicio */
+export const CHAT_TABS: AgentId[] = ["sala_juntas", ...CHAT_SELECTOR_AGENTS];
+
 export function getAgentColor(agentId: AgentId): string {
   return AGENT_COLORS[agentId] ?? "#8b5cf6";
 }

@@ -350,7 +350,10 @@ function PlanItemCard({
 
   const handleChatClick = () => {
     const msg = `Tengo una duda sobre mi ${item.tipo === "habito" ? "hábito" : "tarea"}: "${item.title}". ${item.description ?? ""}`.trim();
-    navigate(`/chat/${item.agentId}?contexto=${encodeURIComponent(msg)}`);
+    const target = item.agentId === "sala_juntas"
+      ? `/boardroom?contexto=${encodeURIComponent(msg)}`
+      : `/chat/${item.agentId}?contexto=${encodeURIComponent(msg)}`;
+    navigate(target);
   };
 
   return (
