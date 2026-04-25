@@ -56,6 +56,8 @@ export type ToolChoice =
   | ToolChoiceExplicit;
 
 export type InvokeParams = {
+  /** Si se omite, se usa OPENAI_MODEL o gpt-4o-mini. */
+  model?: string;
   messages: Message[];
   tools?: Tool[];
   toolChoice?: ToolChoice;
@@ -293,6 +295,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
   const {
+    model: modelOverride,
     messages,
     tools,
     toolChoice,
@@ -303,9 +306,12 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     response_format,
   } = params;
 
-  const defaultModel = (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim();
+  const modelId = (
+    modelOverride?.trim() ||
+    (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim()
+  ).trim();
   const payload: Record<string, unknown> = {
-    model: defaultModel,
+    model: modelId,
     messages: messages.map(normalizeMessage),
   };
 
@@ -321,7 +327,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  if (modelUsesMaxCompletionTokens(defaultModel)) {
+  if (modelUsesMaxCompletionTokens(modelId)) {
     payload.max_completion_tokens = 4096;
   } else {
     payload.max_tokens = 4096;

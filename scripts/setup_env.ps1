@@ -46,8 +46,10 @@ OPENAI_API_KEY=$openai
 # GOOGLE_REDIRECT_URI=https://tuconsejo.app/api/auth/google/callback
 # MICROSOFT_REDIRECT_URI=https://tuconsejo.app/api/auth/microsoft/callback
 
-# Sincronización automática de correos (minutos entre revisiones; mínimo 5)
-# AUTO_SYNC_INTERVAL_MIN=5
+# Sincronización automática de correos (minutos entre revisiones; mínimo 5; por defecto en código 15)
+# AUTO_SYNC_INTERVAL_MIN=15
+# Modelo solo para clasificar correos entrantes (barato); el chat usa OPENAI_MODEL
+# OPENAI_EMAIL_CLASSIFIER_MODEL=gpt-5.4-nano
 
 # Opcionales Manus / Forge (si los usas)
 # VITE_APP_ID=

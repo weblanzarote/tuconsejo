@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, or, like, isNotNull } from "drizzle-orm";
+import { eq, and, asc, desc, or, like, isNotNull, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import path from "path";
@@ -1132,6 +1132,20 @@ export async function insertEmailSignal(data: InsertEmailSignal) {
     // Duplicado silencioso (ya existe este gmailMessageId para este usuario)
     return null;
   }
+}
+
+/** IDs de mensaje ya guardados (mismo formato que insert: integrationId:providerMessageId). */
+export async function getExistingEmailGmailIdsForUser(
+  userId: number,
+  gmailMessageIds: string[]
+): Promise<Set<string>> {
+  if (gmailMessageIds.length === 0) return new Set();
+  const db = getDb();
+  const rows = await db
+    .select({ gmailMessageId: emailSignals.gmailMessageId })
+    .from(emailSignals)
+    .where(and(eq(emailSignals.userId, userId), inArray(emailSignals.gmailMessageId, gmailMessageIds)));
+  return new Set(rows.map((r) => r.gmailMessageId));
 }
 
 export async function getEmailSignalsByUser(userId: number, status?: string) {

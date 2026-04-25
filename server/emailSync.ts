@@ -1,6 +1,7 @@
 import { invokeLLM } from "./_core/llm";
 import {
   getEmailFilterPrefs,
+  getExistingEmailGmailIdsForUser,
   getIntegrationsByUser,
   getRecentClassifierFeedbackExamples,
   insertEmailSignal,
@@ -8,6 +9,14 @@ import {
 import { extractIgnoredSenderEmails, mergeEmailFilterPrefs } from "./emailFilterPrefs";
 import { dispatchNotification } from "./notifications/dispatcher";
 import { getProvider } from "./providers";
+
+function emailClassifierModel(): string {
+  return (process.env.OPENAI_EMAIL_CLASSIFIER_MODEL ?? "gpt-5.4-nano").trim() || "gpt-5.4-nano";
+}
+
+function gmailMessageKey(integrationId: number, providerMessageId: string): string {
+  return `${integrationId}:${providerMessageId}`;
+}
 
 export interface SyncResult {
   synced: number;
@@ -52,8 +61,17 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
       const messageList = await provider.fetchRecent(integration, 30);
       if (!messageList.length) continue;
 
+      const candidateKeys = messageList.map((m) =>
+        gmailMessageKey(integration.id, m.providerMessageId)
+      );
+      const alreadyStored = await getExistingEmailGmailIdsForUser(userId, candidateKeys);
+      const newOnlyMeta = messageList.filter(
+        (m) => !alreadyStored.has(gmailMessageKey(integration.id, m.providerMessageId))
+      );
+      if (!newOnlyMeta.length) continue;
+
       const details = await Promise.all(
-        messageList.slice(0, 30).map((m) => provider.fetchDetail(integration, m.providerMessageId).catch(() => null))
+        newOnlyMeta.map((m) => provider.fetchDetail(integration, m.providerMessageId).catch(() => null))
       );
       const validDetails = details.filter(Boolean) as NonNullable<typeof details[0]>[];
       if (!validDetails.length) {
@@ -84,6 +102,7 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
       let importantIds: string[] = [];
       try {
         const filterResponse = await invokeLLM({
+          model: emailClassifierModel(),
           messages: [
             {
               role: "system",
