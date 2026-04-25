@@ -70,26 +70,52 @@ async function tick() {
   }
 }
 
+function scheduleAlignedTick() {
+  // Alinea el scheduler al borde de minuto real para que condiciones como `minute === 0`
+  // funcionen siempre, independientemente de cuándo arrancó el proceso.
+  const now = Date.now();
+  const toNextMinute = TICK_INTERVAL_MS - (now % TICK_INTERVAL_MS);
+  const delayMs = Math.max(250, toNextMinute + 50); // pequeño margen para evitar drift por jitter
+  setTimeout(async () => {
+    await tick();
+    scheduleAlignedTick();
+  }, delayMs);
+}
+
 async function enqueueTaskReminders(userId: number, tz: string, cycleKey: string) {
   const items = await getActionItemsByUser(userId);
   const today = formatYyyyMmDdInTimeZone(new Date(), tz);
   for (const it of items) {
     if (it.status === "completada" || it.status === "cancelada") continue;
     if (it.isArchived) continue;
-    if (!it.deadline) continue;
-    const deadlineStr = formatYyyyMmDdInTimeZone(new Date(it.deadline), tz);
-    if (deadlineStr <= today) {
-      const overdue = deadlineStr < today;
-      await dispatchNotification({
-        userId,
-        kind: "task_due",
-        title: it.title,
-        body: overdue ? `vencía ${deadlineStr}` : "vence hoy",
-        refId: it.id,
-        // Un aviso por tarea y por ciclo (hora local YYYY-MM-DDTHH)
-        dedupeKey: `task_due:${it.id}:${cycleKey}`,
-      });
+    // 1) Si hay deadline y es hoy o vencida → recordatorio "due".
+    // 2) Si no hay deadline → también recordatorio, pero con texto "pendiente" (sin fecha).
+    if (it.deadline) {
+      const deadlineStr = formatYyyyMmDdInTimeZone(new Date(it.deadline), tz);
+      if (deadlineStr <= today) {
+        const overdue = deadlineStr < today;
+        await dispatchNotification({
+          userId,
+          kind: "task_due",
+          title: it.title,
+          body: overdue ? `vencía ${deadlineStr}` : "vence hoy",
+          refId: it.id,
+          // Un aviso por tarea y por ciclo (hora local YYYY-MM-DDTHH)
+          dedupeKey: `task_due:${it.id}:${cycleKey}`,
+        });
+      }
+      continue;
     }
+
+    await dispatchNotification({
+      userId,
+      kind: "task_due",
+      title: it.title,
+      body: "pendiente (sin fecha límite)",
+      refId: it.id,
+      // Un aviso por tarea y por ciclo (hora local YYYY-MM-DDTHH)
+      dedupeKey: `task_due:${it.id}:${cycleKey}:nodl`,
+    });
   }
 }
 
@@ -129,6 +155,6 @@ export function startNotificationScheduler() {
   console.log("[NotifScheduler] Programado cada 1 min");
   setTimeout(() => {
     tick();
-    setInterval(tick, TICK_INTERVAL_MS);
+    scheduleAlignedTick();
   }, INITIAL_DELAY_MS);
 }

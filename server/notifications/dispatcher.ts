@@ -10,6 +10,21 @@ import { escapeTelegramHtml, sendTelegramMessage } from "./telegram";
 
 type NotifKind = NotificationQueueRow["kind"];
 
+function stableHash(s: string): number {
+  // Hash simple/determinista (no cripto) para rotar mensajes sin IA.
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function pickOne(seed: string, options: string[]): string {
+  if (!options.length) return "";
+  return options[stableHash(seed) % options.length]!;
+}
+
 /**
  * Encola una notificación. Los correos importantes se envían al instante; las tareas respetan
  * taskFrequency y el scheduler. Modo "off" no encola.
@@ -58,7 +73,7 @@ export async function dispatchNotification(params: {
 
 function frequencyFor(kind: NotifKind, s: { emailFrequency: string; taskFrequency: string }) {
   if (kind === "email") return s.emailFrequency as "instant" | "hourly" | "daily" | "off";
-  return s.taskFrequency as "instant" | "daily" | "off";
+  return s.taskFrequency as "hourly" | "every4h" | "every8h" | "daily" | "off";
 }
 
 /**
@@ -90,7 +105,21 @@ function formatDigest(rows: NotificationQueueRow[]): string {
   const tasksNew = rows.filter((r) => r.kind === "task_new");
   const tasksDue = rows.filter((r) => r.kind === "task_due");
 
+  const seed = `${new Date().toISOString().slice(0, 13)}|${rows[0]?.userId ?? 0}|${rows[0]?.id ?? 0}`;
+  const headerOptions = [
+    "Mini empujón del Consejo: lo importante es empezar.",
+    "Vamos a por una pequeña victoria hoy.",
+    "Un paso pequeño ahora te ahorra estrés luego.",
+    "Recordatorio amable: tu yo del futuro te lo agradecerá.",
+    "Modo progreso: 10 minutos cuentan.",
+    "Si lo tienes en mente, merece un hueco en tu día.",
+    "Hoy toca avanzar, aunque sea un poquito.",
+    "No hace falta perfecto: hace falta hecho.",
+  ];
+  const header = pickOne(seed, headerOptions);
+
   const parts: string[] = [];
+  if (header) parts.push(`✨ <b>${escapeTelegramHtml(header)}</b>`);
   if (emails.length === 1) {
     parts.push(`📧 <b>Correo importante</b>\n${escapeTelegramHtml(emails[0].title)}\n${escapeTelegramHtml(emails[0].body)}`);
   } else if (emails.length > 1) {
@@ -116,8 +145,17 @@ function formatDigest(rows: NotificationQueueRow[]): string {
   }
 
   if (tasksDue.length) {
+    const dueIntroOptions = [
+      "Elige una y desbloquea tu día.",
+      "¿Cuál te quitas primero para respirar mejor?",
+      "Una de estas resuelta y ya ganaste inercia.",
+      "Si haces solo una cosa hoy, que sea una de estas.",
+      "Ponte un temporizador de 10 minutos y empieza.",
+    ];
+    const dueIntro = pickOne(`${seed}|due|${tasksDue.length}`, dueIntroOptions);
     parts.push(
       `⏰ <b>${tasksDue.length} tarea${tasksDue.length === 1 ? "" : "s"} pendiente${tasksDue.length === 1 ? "" : "s"}</b>\n` +
+        `${escapeTelegramHtml(dueIntro)}\n` +
         tasksDue
           .slice(0, 10)
           .map((t) => `• ${escapeTelegramHtml(t.title)}${t.body ? " — " + escapeTelegramHtml(t.body) : ""}`)
