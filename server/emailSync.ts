@@ -157,7 +157,7 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
             userId,
             kind: "email",
             title: detail.subject || "(sin asunto)",
-            body: `de ${detail.fromName || detail.fromAddress}`,
+            body: `${integration.label ? `[${integration.label}] ` : ""}de ${detail.fromName || detail.fromAddress}`,
             refId: inserted.id,
             dedupeKey: `email:${inserted.id}`,
           });

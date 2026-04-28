@@ -115,11 +115,21 @@ function formatDigest(rows: NotificationQueueRow[]): string {
     "Si lo tienes en mente, merece un hueco en tu día.",
     "Hoy toca avanzar, aunque sea un poquito.",
     "No hace falta perfecto: hace falta hecho.",
+    "El secreto para avanzar es dar el primer paso.",
+    "No subestimes el poder de un pequeño avance constante.",
+    "Convierte esa intención en acción hoy mismo.",
+    "Cada tarea completada es una carga menos en tu mente.",
+    "Tu concentración de hoy es tu tranquilidad de mañana.",
+    "No mires la cima, solo concéntrate en el siguiente escalón.",
+    "Una mente clara empieza con una lista de tareas más corta.",
+    "Hazlo ahora, a veces 'luego' se convierte en 'nunca'.",
+    "El éxito es la suma de pequeños esfuerzos repetidos día tras día.",
+    "Conquista el día antes de que el día te conquiste a ti.",
   ];
   const header = pickOne(seed, headerOptions);
 
   const parts: string[] = [];
-  if (header) parts.push(`✨ <b>${escapeTelegramHtml(header)}</b>`);
+  if (header && emails.length === 0) parts.push(`✨ <b>${escapeTelegramHtml(header)}</b>`);
   if (emails.length === 1) {
     parts.push(`📧 <b>Correo importante</b>\n${escapeTelegramHtml(emails[0].title)}\n${escapeTelegramHtml(emails[0].body)}`);
   } else if (emails.length > 1) {
