@@ -18,8 +18,19 @@ import {
   ArchiveRestore,
   Inbox,
   Star,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
+
+function buildExternalEmailUrl(provider: string, gmailMessageId: string | null | undefined): string | null {
+  if (!gmailMessageId) return null;
+  const [, ...rest] = gmailMessageId.split(":");
+  const originalId = rest.join(":") || gmailMessageId;
+  if (!originalId) return null;
+  if (provider === "google") return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(originalId)}`;
+  if (provider === "microsoft") return `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(originalId)}`;
+  return null;
+}
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 function formatRelativeDate(date: Date | string | null | undefined): string {
@@ -422,6 +433,7 @@ function CorreoCard({
     draftReply?: string | null;
     classifierUserFeedback?: "spot_on" | "not_important" | null;
     integrationId?: number | null;
+    gmailMessageId?: string | null;
   };
   accountVisual: AccountVisual | null;
   variant?: "pending" | "archived";
@@ -498,7 +510,27 @@ function CorreoCard({
         )}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground truncate">{signal.subject}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-sm font-medium text-foreground truncate flex-1 min-w-0">{signal.subject}</p>
+              {accountVisual && (
+                (() => {
+                  const url = buildExternalEmailUrl(accountVisual.provider, signal.gmailMessageId);
+                  if (!url) return null;
+                  return (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer inline-flex items-center gap-1"
+                      title="Abrir email completo"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Abrir
+                    </a>
+                  );
+                })()
+              )}
+            </div>
             <p className="text-xs text-muted-foreground truncate mt-0.5">
               {signal.fromName || signal.fromAddress}
               {signal.fromName && signal.fromAddress !== signal.fromName && (

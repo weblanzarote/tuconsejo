@@ -18,6 +18,7 @@ import {
   ListPlus,
   Archive,
   ArchiveRestore,
+  ExternalLink,
 } from "lucide-react";
 import { AGENT_NAMES, AGENT_EMOJIS, AGENT_COLORS, type AgentId } from "@/lib/agents";
 import { useLocation } from "wouter";
@@ -315,6 +316,7 @@ type PlanItem = {
   id: number;
   title: string;
   description?: string | null;
+  category?: "trabajo" | "personal" | null;
   priority: string;
   status: string;
   agentId: string;
@@ -323,6 +325,7 @@ type PlanItem = {
   valorObjetivo?: string | null;
   tipo: string;
   isArchived?: boolean;
+  sourceEmailSignalId?: number | null;
 };
 
 function PlanItemCard({
@@ -339,7 +342,10 @@ function PlanItemCard({
   onSetArchived?: (id: number, archived: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
+  const [newUpdate, setNewUpdate] = useState("");
   const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
 
   const agentName = (AGENT_NAMES as Record<string, string>)[item.agentId] ?? item.agentId;
   const agentEmoji = (AGENT_EMOJIS as Record<string, string>)[item.agentId] ?? "🤖";
@@ -347,6 +353,36 @@ function PlanItemCard({
   const isCompleted = item.status === "completada";
   const isArchived = item.isArchived === true;
   const StatusIcon = STATUS_ICONS[item.status] ?? Circle;
+
+  const { data: updates = [] } = trpc.actionPlan.listUpdates.useQuery(
+    { itemId: item.id },
+    { enabled: expanded && updatesOpen }
+  );
+  const addUpdate = trpc.actionPlan.addUpdate.useMutation({
+    onSuccess: async () => {
+      setNewUpdate("");
+      await utils.actionPlan.listUpdates.invalidate({ itemId: item.id } as any);
+      toast.success("Actualización añadida");
+    },
+    onError: () => toast.error("No se pudo añadir"),
+  });
+  const deleteUpdate = trpc.actionPlan.deleteUpdate.useMutation({
+    onSuccess: async () => {
+      await utils.actionPlan.listUpdates.invalidate({ itemId: item.id } as any);
+    },
+    onError: () => toast.error("No se pudo borrar"),
+  });
+
+  const { data: emailLink } = trpc.actionPlan.getSourceEmailLink.useQuery(
+    { itemId: item.id },
+    { enabled: expanded && !!item.sourceEmailSignalId }
+  );
+
+  const handleAddUpdate = async () => {
+    const c = newUpdate.trim();
+    if (!c) return;
+    await addUpdate.mutateAsync({ itemId: item.id, content: c });
+  };
 
   const handleChatClick = () => {
     const msg = `Tengo una duda sobre mi ${item.tipo === "habito" ? "hábito" : "tarea"}: "${item.title}". ${item.description ?? ""}`.trim();
@@ -382,6 +418,11 @@ function PlanItemCard({
             {item.title}
           </p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            {item.category && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-border text-muted-foreground">
+                {item.category === "trabajo" ? "Trabajo" : "Personal"}
+              </span>
+            )}
             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded"
               style={{ backgroundColor: `${PRIORITY_COLORS[item.priority] ?? "#8b5cf6"}20`, color: PRIORITY_COLORS[item.priority] ?? "#8b5cf6" }}>
               {item.priority === "alta" ? "Alta" : item.priority === "media" ? "Media" : "Baja"}
@@ -455,6 +496,19 @@ function PlanItemCard({
               </button>
             )}
 
+            {emailLink?.url && (
+              <a
+                href={emailLink.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors cursor-pointer"
+                title="Abrir el email completo (si tu proveedor lo permite)"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Abrir email
+              </a>
+            )}
+
             {/* Eliminar */}
             <button
               onClick={() => onDelete(item.id)}
@@ -463,6 +517,69 @@ function PlanItemCard({
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
+          </div>
+
+          {/* Actualizaciones */}
+          <div className="border-t border-border/60 pt-3">
+            <button
+              type="button"
+              onClick={() => setUpdatesOpen((v) => !v)}
+              className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            >
+              {updatesOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              <span>Actualizaciones</span>
+            </button>
+            {updatesOpen && (
+              <div className="mt-3 space-y-3">
+                <div className="flex gap-2 items-start">
+                  <textarea
+                    value={newUpdate}
+                    onChange={(e) => setNewUpdate(e.target.value)}
+                    rows={2}
+                    placeholder="Añade un comentario de estado, lo que falta, próximos pasos…"
+                    className="flex-1 text-sm bg-background/30 border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleAddUpdate()}
+                    disabled={!newUpdate.trim() || addUpdate.isPending}
+                    className={cn(
+                      "text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer",
+                      newUpdate.trim() && !addUpdate.isPending
+                        ? "bg-foreground text-background hover:bg-foreground/90"
+                        : "bg-muted text-muted-foreground cursor-not-allowed"
+                    )}
+                  >
+                    Añadir
+                  </button>
+                </div>
+                {updates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/70">Aún no hay actualizaciones.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {updates.map((u: any) => (
+                      <div key={u.id} className="flex items-start gap-2 rounded-lg border border-border/50 bg-background/30 px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground/90 whitespace-pre-wrap">{u.content}</p>
+                          <p className="text-[10px] text-muted-foreground/60 mt-1">
+                            {new Date(u.createdAt).toLocaleString("es-ES")}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => deleteUpdate.mutate({ updateId: u.id })}
+                          disabled={deleteUpdate.isPending}
+                          className="p-1 text-muted-foreground/50 hover:text-destructive transition-colors cursor-pointer"
+                          title="Borrar"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -485,6 +602,14 @@ type StatusFilter = "todas" | "pendiente" | "en_progreso" | "completada";
 function TareasTab() {
   const [planScope, setPlanScope] = useState<"activas" | "archivadas">("activas");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("todas");
+  const [categoryFilter, setCategoryFilter] = useState<"todas" | "trabajo" | "personal">("todas");
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [newTask, setNewTask] = useState({
+    title: "",
+    description: "",
+    category: "personal" as "trabajo" | "personal",
+    priority: "media" as "alta" | "media" | "baja",
+  });
   const utils = trpc.useUtils();
 
   const { data: allItems = [], isLoading } = trpc.actionPlan.list.useQuery({});
@@ -514,36 +639,167 @@ function TareasTab() {
     onError: () => toast.error("No se pudo actualizar"),
   });
 
+  const byStatus = statusFilter === "todas" ? tareasScoped : tareasScoped.filter((i) => i.status === statusFilter);
   const filtered =
-    statusFilter === "todas" ? tareasScoped : tareasScoped.filter((i) => i.status === statusFilter);
+    categoryFilter === "todas" ? byStatus : byStatus.filter((i) => (i as any).category === categoryFilter);
 
   const nextStatus = (current: string) =>
     current === "pendiente" ? "en_progreso" : current === "en_progreso" ? "completada" : "pendiente";
 
+  const createManual = trpc.actionPlan.add.useMutation({
+    onSuccess: async () => {
+      await utils.actionPlan.list.invalidate();
+      toast.success("Tarea creada");
+      setShowNewTask(false);
+      setNewTask({ title: "", description: "", category: "personal", priority: "media" });
+    },
+    onError: () => toast.error("No se pudo crear"),
+  });
+
+  const saveManualTask = async () => {
+    const title = newTask.title.trim();
+    if (!title) return;
+    await createManual.mutateAsync({
+      agentId: "guardian",
+      title,
+      description: newTask.description.trim() || undefined,
+      category: newTask.category,
+      priority: newTask.priority,
+      tipo: "tarea",
+    });
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex rounded-lg border border-border p-0.5 w-fit">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-lg border border-border p-0.5 w-fit">
+            <button
+              type="button"
+              onClick={() => setPlanScope("activas")}
+              className={cn(
+                "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+                planScope === "activas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Activas
+            </button>
+            <button
+              type="button"
+              onClick={() => setPlanScope("archivadas")}
+              className={cn(
+                "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+                planScope === "archivadas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Archivadas
+            </button>
+          </div>
+
+          <div className="flex rounded-lg border border-border p-0.5 w-fit">
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("todas")}
+              className={cn(
+                "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+                categoryFilter === "todas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Todas
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("trabajo")}
+              className={cn(
+                "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+                categoryFilter === "trabajo" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Trabajo
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoryFilter("personal")}
+              className={cn(
+                "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
+                categoryFilter === "personal" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Personal
+            </button>
+          </div>
+        </div>
+
         <button
           type="button"
-          onClick={() => setPlanScope("activas")}
-          className={cn(
-            "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
-            planScope === "activas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
-          )}
+          onClick={() => setShowNewTask(true)}
+          className="flex items-center gap-1.5 text-sm bg-foreground text-background px-3 py-1.5 rounded-md hover:bg-foreground/90 transition-colors cursor-pointer w-fit"
         >
-          Activas
-        </button>
-        <button
-          type="button"
-          onClick={() => setPlanScope("archivadas")}
-          className={cn(
-            "text-xs px-3 py-1.5 rounded-md transition-colors cursor-pointer",
-            planScope === "archivadas" ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Archivadas
+          <Plus className="h-4 w-4" /> Nueva tarea
         </button>
       </div>
+
+      {showNewTask && (
+        <div className="border border-border rounded-xl bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-foreground">Nueva tarea</p>
+            <button
+              type="button"
+              onClick={() => setShowNewTask(false)}
+              className="p-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title="Cerrar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <input
+            type="text"
+            value={newTask.title}
+            onChange={(e) => setNewTask((p) => ({ ...p, title: e.target.value }))}
+            placeholder="Título de la tarea"
+            className="w-full text-sm bg-muted border border-border rounded-lg px-3 py-2.5 focus:outline-none focus:border-foreground/30 transition-colors"
+          />
+          <textarea
+            value={newTask.description}
+            onChange={(e) => setNewTask((p) => ({ ...p, description: e.target.value }))}
+            rows={3}
+            placeholder="Descripción (opcional)"
+            className="w-full text-sm bg-muted border border-border rounded-lg px-3 py-2.5 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/50"
+          />
+          <div className="flex gap-2 flex-wrap items-center">
+            <select
+              value={newTask.category}
+              onChange={(e) => setNewTask((p) => ({ ...p, category: e.target.value as any }))}
+              className="text-xs border border-border rounded-md px-2 py-1 bg-background text-muted-foreground focus:outline-none focus:border-foreground/30 cursor-pointer"
+            >
+              <option value="trabajo">Trabajo</option>
+              <option value="personal">Personal</option>
+            </select>
+            <select
+              value={newTask.priority}
+              onChange={(e) => setNewTask((p) => ({ ...p, priority: e.target.value as any }))}
+              className="text-xs border border-border rounded-md px-2 py-1 bg-background text-muted-foreground focus:outline-none focus:border-foreground/30 cursor-pointer"
+            >
+              <option value="alta">Alta</option>
+              <option value="media">Media</option>
+              <option value="baja">Baja</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => void saveManualTask()}
+              disabled={!newTask.title.trim() || createManual.isPending}
+              className={cn(
+                "ml-auto text-xs px-3 py-2 rounded-lg transition-colors cursor-pointer",
+                newTask.title.trim() && !createManual.isPending
+                  ? "bg-foreground text-background hover:bg-foreground/90"
+                  : "bg-muted text-muted-foreground cursor-not-allowed"
+              )}
+            >
+              {createManual.isPending ? "Guardando..." : "Crear"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-1.5 flex-wrap">
         {STATUS_OPTIONS.map((opt) => (

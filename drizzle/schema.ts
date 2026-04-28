@@ -106,6 +106,7 @@ export const actionItems = sqliteTable("action_items", {
   }).notNull(),
   title: text("title").notNull(),
   description: text("description"),
+  category: text("category", { enum: ["trabajo", "personal"] }).default("personal").notNull(),
   priority: text("priority", { enum: ["alta", "media", "baja"] }).default("media").notNull(),
   status: text("status", {
     enum: ["pendiente", "en_progreso", "completada", "cancelada"],
@@ -120,6 +121,7 @@ export const actionItems = sqliteTable("action_items", {
   valorObjetivo: text("valorObjetivo"),
   completedAt: integer("completedAt", { mode: "timestamp_ms" }),
   sourceMessageId: integer("sourceMessageId"),
+  sourceEmailSignalId: integer("sourceEmailSignalId"),
   createdAt: integer("createdAt", { mode: "timestamp_ms" })
     .default(sql`(unixepoch() * 1000)`)
     .notNull(),
@@ -130,6 +132,20 @@ export const actionItems = sqliteTable("action_items", {
 
 export type ActionItem = typeof actionItems.$inferSelect;
 export type InsertActionItem = typeof actionItems.$inferInsert;
+
+// ─── Actualizaciones / apuntes por tarea ──────────────────────────────────────
+export const actionItemUpdates = sqliteTable("action_item_updates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("userId").notNull(),
+  itemId: integer("itemId").notNull(),
+  content: text("content").notNull(),
+  createdAt: integer("createdAt", { mode: "timestamp_ms" })
+    .default(sql`(unixepoch() * 1000)`)
+    .notNull(),
+});
+
+export type ActionItemUpdate = typeof actionItemUpdates.$inferSelect;
+export type InsertActionItemUpdate = typeof actionItemUpdates.$inferInsert;
 
 // ─── Memoria Contextual ───────────────────────────────────────────────────────
 export const memoryEntries = sqliteTable("memory_entries", {

@@ -15,6 +15,8 @@ import { getNotificationSettings, upsertNotificationSettings, DEFAULT_NOTIFICATI
 import {
   deleteActionItem,
   getActionItemsByUser,
+  getActionItemById,
+  getActionItemUpdatesByItem,
   getConversationsByUser,
   getMemoryByAgent,
   getCrossAgentMemories,
@@ -23,6 +25,7 @@ import {
   getVaultByUserId,
   incrementMessageCount,
   insertActionItem,
+  insertActionItemUpdate,
   insertMemoryEntry,
   insertMessage,
   updateActionItemStatus,
@@ -62,6 +65,7 @@ import {
   replaceUserData,
   updateActionItemTipo,
   updateActionItemArchived,
+  deleteActionItemUpdate,
   getPulseDayCache,
   upsertPulseDayCache,
   replaceBankMovementsForUser,
@@ -387,6 +391,7 @@ const actionPlanRouter = router({
         agentId: AgentIdSchema,
         title: z.string().min(1).max(512),
         description: z.string().optional(),
+        category: z.enum(["trabajo", "personal"]).optional(),
         priority: z.enum(["alta", "media", "baja"]).optional(),
         deadline: z.string().optional(), // ISO date string
         metrica: z.string().optional(),
@@ -403,6 +408,7 @@ const actionPlanRouter = router({
         agentId: input.agentId as AgentId,
         title: input.title,
         description: input.description,
+        category: input.category ?? "personal",
         priority: input.priority,
         deadline,
         metrica: input.metrica,
@@ -444,6 +450,55 @@ const actionPlanRouter = router({
     .mutation(async ({ ctx, input }) => {
       await deleteActionItem(input.itemId, ctx.user.id);
       return { success: true };
+    }),
+
+  listUpdates: protectedProcedure
+    .input(z.object({ itemId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      return getActionItemUpdatesByItem(ctx.user.id, input.itemId);
+    }),
+
+  addUpdate: protectedProcedure
+    .input(z.object({ itemId: z.number(), content: z.string().min(1).max(4000) }))
+    .mutation(async ({ ctx, input }) => {
+      const row = await insertActionItemUpdate({
+        userId: ctx.user.id,
+        itemId: input.itemId,
+        content: input.content,
+      });
+      return { id: row.id };
+    }),
+
+  deleteUpdate: protectedProcedure
+    .input(z.object({ updateId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await deleteActionItemUpdate(ctx.user.id, input.updateId);
+      return { success: true };
+    }),
+
+  getSourceEmailLink: protectedProcedure
+    .input(z.object({ itemId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const item = await getActionItemById(ctx.user.id, input.itemId);
+      if (!item?.sourceEmailSignalId) return { url: null as string | null };
+      const signal = await getEmailSignalById(ctx.user.id, item.sourceEmailSignalId);
+      if (!signal?.integrationId) return { url: null as string | null };
+      const integration = await getIntegrationById(ctx.user.id, signal.integrationId);
+      if (!integration) return { url: null as string | null };
+
+      // gmailMessageId se guarda como "integrationId:providerMessageId"
+      const [, ...rest] = (signal.gmailMessageId ?? "").split(":");
+      const originalId = rest.join(":") || signal.gmailMessageId;
+      if (!originalId) return { url: null as string | null };
+
+      if (integration.provider === "google") {
+        return { url: `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(originalId)}` };
+      }
+      if (integration.provider === "microsoft") {
+        // Best-effort: funciona si providerMessageId es compatible con el deeplink del webmail
+        return { url: `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(originalId)}` };
+      }
+      return { url: null as string | null };
     }),
 });
 
@@ -1323,8 +1378,10 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
         agentId: "carrera",
         title: input.title,
         description: input.description ?? `Origen: email de ${signal.fromName} — ${signal.subject}`,
+        category: "trabajo",
         priority: input.priority ?? "media",
         deadline,
+        sourceEmailSignalId: signal.id,
       });
 
       await updateEmailSignalStatus(userId, input.id, "converted", { taskId: task.id });

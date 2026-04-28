@@ -9,6 +9,7 @@ import {
   conversations,
   messages,
   actionItems,
+  actionItemUpdates,
   memoryEntries,
   diaryEntries,
   notes,
@@ -24,6 +25,7 @@ import {
   type InsertConversation,
   type InsertMessage,
   type InsertActionItem,
+  type InsertActionItemUpdate,
   type InsertMemoryEntry,
   type InsertDiaryEntry,
   type InsertNote,
@@ -119,6 +121,7 @@ export function initializeDatabase() {
       agentId TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT,
+      category TEXT NOT NULL DEFAULT 'personal',
       priority TEXT NOT NULL DEFAULT 'media',
       status TEXT NOT NULL DEFAULT 'pendiente',
       deadline INTEGER,
@@ -126,6 +129,7 @@ export function initializeDatabase() {
       valorObjetivo TEXT,
       completedAt INTEGER,
       sourceMessageId INTEGER,
+      sourceEmailSignalId INTEGER,
       createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
@@ -199,6 +203,14 @@ export function initializeDatabase() {
       createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
       updatedAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
+
+    CREATE TABLE IF NOT EXISTS action_item_updates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      itemId INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
   `);
 
   // Migraciones para columnas añadidas en versiones posteriores
@@ -227,6 +239,16 @@ export function initializeDatabase() {
     "ALTER TABLE users ADD COLUMN autoSyncEnabled INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE notes ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE action_items ADD COLUMN isArchived INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE action_items ADD COLUMN category TEXT NOT NULL DEFAULT 'personal'",
+    "ALTER TABLE action_items ADD COLUMN sourceEmailSignalId INTEGER",
+    `CREATE TABLE IF NOT EXISTS action_item_updates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId INTEGER NOT NULL,
+      itemId INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      createdAt INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    )`,
+    "CREATE INDEX IF NOT EXISTS action_item_updates_user_item ON action_item_updates(userId, itemId)",
     `CREATE TABLE IF NOT EXISTS pulse_day_cache (
       userId INTEGER NOT NULL,
       date TEXT NOT NULL,
@@ -514,10 +536,44 @@ export async function getActionItemsByUser(userId: number, agentId?: string) {
     .orderBy(desc(actionItems.createdAt));
 }
 
+export async function getActionItemById(userId: number, itemId: number) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(actionItems)
+    .where(and(eq(actionItems.userId, userId), eq(actionItems.id, itemId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function insertActionItem(data: InsertActionItem) {
   const db = getDb();
   const result = await db.insert(actionItems).values(data).returning();
   return result[0];
+}
+
+export async function getActionItemUpdatesByItem(userId: number, itemId: number) {
+  const db = getDb();
+  return db
+    .select()
+    .from(actionItemUpdates)
+    .where(and(eq(actionItemUpdates.userId, userId), eq(actionItemUpdates.itemId, itemId)))
+    .orderBy(desc(actionItemUpdates.createdAt));
+}
+
+export async function insertActionItemUpdate(
+  data: Omit<InsertActionItemUpdate, "id" | "createdAt">
+) {
+  const db = getDb();
+  const result = await db.insert(actionItemUpdates).values(data).returning();
+  return result[0];
+}
+
+export async function deleteActionItemUpdate(userId: number, updateId: number) {
+  const db = getDb();
+  await db
+    .delete(actionItemUpdates)
+    .where(and(eq(actionItemUpdates.id, updateId), eq(actionItemUpdates.userId, userId)));
 }
 
 export async function updateActionItemTipo(id: number, userId: number, tipo: "tarea" | "habito") {

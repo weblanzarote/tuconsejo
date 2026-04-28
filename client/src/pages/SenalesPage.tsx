@@ -13,6 +13,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+function buildExternalEmailUrl(provider: "google" | "microsoft" | "imap" | string, gmailMessageId: string | null | undefined): string | null {
+  if (!gmailMessageId) return null;
+  const [, ...rest] = gmailMessageId.split(":");
+  const originalId = rest.join(":") || gmailMessageId;
+  if (!originalId) return null;
+  if (provider === "google") return `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(originalId)}`;
+  if (provider === "microsoft") return `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(originalId)}`;
+  return null;
+}
+
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 function formatRelativeDate(date: Date | string | null | undefined): string {
   if (!date) return "";
@@ -368,6 +378,7 @@ interface SignalCardProps {
     fullBody?: string | null;
     receivedAt?: Date | null;
     draftReply?: string | null;
+    gmailMessageId?: string | null;
   };
   onIgnored: () => void;
   onReplied: () => void;
@@ -377,6 +388,7 @@ interface SignalCardProps {
 function SignalCard({ signal, onIgnored, onReplied, onConverted }: SignalCardProps) {
   const [showReplyDrawer, setShowReplyDrawer] = useState(false);
   const [showConvertDrawer, setShowConvertDrawer] = useState(false);
+  const url = buildExternalEmailUrl("google", signal.gmailMessageId);
 
   const utils = trpc.useUtils();
   const ignoreMutation = trpc.signals.ignore.useMutation({
@@ -394,7 +406,21 @@ function SignalCard({ signal, onIgnored, onReplied, onConverted }: SignalCardPro
         {/* Cabecera */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground truncate">{signal.subject}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="text-sm font-medium text-foreground truncate flex-1 min-w-0">{signal.subject}</p>
+              {url && (
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer inline-flex items-center gap-1"
+                  title="Abrir email completo"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Abrir
+                </a>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground truncate mt-0.5">
               {signal.fromName || signal.fromAddress}
               {signal.fromName && signal.fromAddress !== signal.fromName && (
