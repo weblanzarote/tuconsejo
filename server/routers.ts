@@ -64,6 +64,7 @@ import {
   exportUserData,
   replaceUserData,
   updateActionItemTipo,
+  updateActionItemCategory,
   updateActionItemArchived,
   deleteActionItemUpdate,
   getPulseDayCache,
@@ -435,6 +436,13 @@ const actionPlanRouter = router({
     .input(z.object({ itemId: z.number(), tipo: z.enum(["tarea", "habito"]) }))
     .mutation(async ({ ctx, input }) => {
       await updateActionItemTipo(input.itemId, ctx.user.id, input.tipo);
+      return { success: true };
+    }),
+
+  updateCategory: protectedProcedure
+    .input(z.object({ itemId: z.number(), category: z.enum(["trabajo", "personal"]) }))
+    .mutation(async ({ ctx, input }) => {
+      await updateActionItemCategory(input.itemId, ctx.user.id, input.category);
       return { success: true };
     }),
 
@@ -1372,13 +1380,20 @@ Redacta SOLO el cuerpo del email de respuesta. Sé conciso y natural. Sin encabe
       const signal = await getEmailSignalById(userId, input.id);
       if (!signal) throw new TRPCError({ code: "NOT_FOUND", message: "Señal no encontrada" });
 
+      let category: "trabajo" | "personal" = "personal";
+      if (signal.integrationId) {
+        const integration = await getIntegrationById(userId, signal.integrationId);
+        const label = integration?.label?.trim().toLowerCase() ?? "";
+        if (label.includes("trabajo")) category = "trabajo";
+      }
+
       const deadline = input.deadline ? new Date(input.deadline) : undefined;
       const task = await insertActionItem({
         userId,
         agentId: "carrera",
         title: input.title,
         description: input.description ?? `Origen: email de ${signal.fromName} — ${signal.subject}`,
-        category: "trabajo",
+        category,
         priority: input.priority ?? "media",
         deadline,
         sourceEmailSignalId: signal.id,

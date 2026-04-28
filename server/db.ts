@@ -582,6 +582,14 @@ export async function updateActionItemTipo(id: number, userId: number, tipo: "ta
     .where(and(eq(actionItems.id, id), eq(actionItems.userId, userId)));
 }
 
+export async function updateActionItemCategory(id: number, userId: number, category: "trabajo" | "personal") {
+  const db = getDb();
+  await db
+    .update(actionItems)
+    .set({ category, updatedAt: new Date() })
+    .where(and(eq(actionItems.id, id), eq(actionItems.userId, userId)));
+}
+
 export async function updateActionItemStatus(
   id: number,
   userId: number,

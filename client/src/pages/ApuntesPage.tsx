@@ -378,6 +378,14 @@ function PlanItemCard({
     { enabled: expanded && !!item.sourceEmailSignalId }
   );
 
+  const updateCategory = trpc.actionPlan.updateCategory.useMutation({
+    onSuccess: async () => {
+      await utils.actionPlan.list.invalidate();
+      toast.success("Categoría actualizada");
+    },
+    onError: () => toast.error("No se pudo actualizar"),
+  });
+
   const handleAddUpdate = async () => {
     const c = newUpdate.trim();
     if (!c) return;
@@ -460,6 +468,22 @@ function PlanItemCard({
 
           {/* Acciones */}
           <div className="flex items-center gap-2 flex-wrap pt-1">
+            {/* Categoría */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Categoría</span>
+              <select
+                value={(item.category ?? "personal") as any}
+                onChange={(e) =>
+                  updateCategory.mutate({ itemId: item.id, category: e.target.value as any })
+                }
+                disabled={updateCategory.isPending}
+                className="text-xs border border-border rounded-md px-2 py-1 bg-background text-muted-foreground focus:outline-none focus:border-foreground/30 cursor-pointer disabled:opacity-60"
+              >
+                <option value="trabajo">Trabajo</option>
+                <option value="personal">Personal</option>
+              </select>
+            </div>
+
             {/* Botón consultar asesor */}
             <button
               onClick={handleChatClick}
