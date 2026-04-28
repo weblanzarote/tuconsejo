@@ -131,13 +131,24 @@ function formatDigest(rows: NotificationQueueRow[]): string {
   const parts: string[] = [];
   if (header && emails.length === 0) parts.push(`✨ <b>${escapeTelegramHtml(header)}</b>`);
   if (emails.length === 1) {
-    parts.push(`📧 <b>Correo importante</b>\n${escapeTelegramHtml(emails[0].title)}\n${escapeTelegramHtml(emails[0].body)}`);
+    const match = emails[0].body.match(/^\[(.*?)\]\s+(.*)/);
+    let labelText = "";
+    let cleanBody = emails[0].body;
+    if (match) {
+      labelText = ` [${match[1]}]`;
+      cleanBody = match[2];
+    }
+    parts.push(`📧 <b>Correo importante${escapeTelegramHtml(labelText)}</b>\n${escapeTelegramHtml(emails[0].title)}\n${escapeTelegramHtml(cleanBody)}`);
   } else if (emails.length > 1) {
     parts.push(
       `📧 <b>${emails.length} correos importantes</b>\n` +
         emails
           .slice(0, 10)
-          .map((e) => `• ${escapeTelegramHtml(e.title)}`)
+          .map((e) => {
+            const match = e.body.match(/^\[(.*?)\]\s+(.*)/);
+            const prefix = match ? `[${match[1]}] ` : "";
+            return `• ${escapeTelegramHtml(prefix + e.title)}`;
+          })
           .join("\n")
     );
   }
