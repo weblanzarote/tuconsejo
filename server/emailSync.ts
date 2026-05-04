@@ -6,7 +6,13 @@ import {
   getRecentClassifierFeedbackExamples,
   insertEmailSignal,
 } from "./db";
-import { extractIgnoredSenderEmails, mergeEmailFilterPrefs } from "./emailFilterPrefs";
+import {
+  mergeEmailFilterPrefs,
+  mergeHardIgnoredSenders,
+  parseMechanicalRules,
+  resolveMechanicalEmailImportance,
+  stripMechanicalLinesForLLM,
+} from "./emailFilterPrefs";
 import { dispatchNotification } from "./notifications/dispatcher";
 import { getProvider } from "./providers";
 
@@ -85,7 +91,9 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
       totalSynced += validDetails.length;
 
       const mergedPrefs = mergeEmailFilterPrefs(userEmailPrefs, integration.emailFilterPrefs);
-      const hardIgnoredSenders = new Set(extractIgnoredSenderEmails(mergedPrefs));
+      const hardIgnoredSenders = mergeHardIgnoredSenders(mergedPrefs);
+      const mechanicalRules = parseMechanicalRules(mergedPrefs);
+      const prefsForLLM = stripMechanicalLinesForLLM(mergedPrefs);
 
       const emailList = validDetails.map((d) => ({
         id: d.providerMessageId,
@@ -96,7 +104,7 @@ export async function syncUserEmails(userId: number): Promise<SyncResult> {
         snippet: d.snippet.slice(0, 200),
       }));
 
-      const accountPrefs = mergedPrefs;
+      const accountPrefs = prefsForLLM;
       const accountLabel = integration.label ? `${integration.label} — ${integration.connectedEmail}` : integration.connectedEmail;
 
       let importantIds: string[] = [];
@@ -113,10 +121,10 @@ Cada correo incluye fromEmail (dirección exacta del remitente), fromDisplay (no
 
 Reglas:
 - Las preferencias del usuario tienen PRIORIDAD ABSOLUTA sobre tu criterio por defecto. Si piden ignorar un remitente concreto (coincidencia por fromEmail, sin distinguir mayúsculas), NUNCA incluyas ese ID en "important", aunque el asunto parezca urgente o sea un formulario/oferta.
-- Si el usuario pide ignorar hilos que no van dirigidos a él sino a un docente u otra persona, usa toCc y el cuerpo/snippet: si los destinatarios principales no incluyen la cuenta del usuario y el tono es respuesta de alumno a profesor, NO es importante.
-- Si el usuario indica que su nombre (p. ej. Fernando o Fer) marca importancia, prioriza esos mensajes salvo que otra regla explícita diga lo contrario.
+- Si el usuario pide ignorar hilos que no van dirigidos a él sino a otra persona (p. ej. docente de un curso), usa toCc y el cuerpo/snippet: si el tono indica que el mensaje no es para el dueño de la bandeja, NO es importante.
+- Las líneas de preferencia que empiezan por FORZAR_IMPORTANTE_ o IGNORAR_ (reglas mecánicas) las aplica el software aparte; en el texto que ves abajo esas líneas ya están quitadas, pero debes respetar el resto de instrucciones (nombres propios, contexto de trabajo, etc.).
 - Por defecto ignora newsletters, notificaciones automáticas, marketing, confirmaciones rutinarias y spam.
-- Los correos que no marques como importantes igual quedan guardados en un registro para el usuario: si hay duda razonable (trabajo, dinero, salud, citas, trámites personales), inclúyelos en "important".
+- Sé conservador con "important": solo incluye un ID si encaja con las preferencias del usuario o es claramente acción personal pendiente. Si no encaja en ignore explícito pero hay duda, NO lo pongas en "important" (quedará en el registro secundario del usuario).
 
 ${accountPrefs ? `Preferencias del usuario (globales + esta cuenta):\n${accountPrefs}` : ""}${classifierLearningBlock}
 
@@ -137,7 +145,17 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
 
       for (const detail of validDetails) {
         if (hardIgnoredSenders.has(detail.fromAddress.trim().toLowerCase())) continue;
-        const isImportant = importantIds.includes(detail.providerMessageId);
+        const mechanical = resolveMechanicalEmailImportance(
+          {
+            subject: detail.subject,
+            snippet: detail.snippet,
+            fullBody: detail.fullBody,
+          },
+          mechanicalRules
+        );
+        let isImportant = importantIds.includes(detail.providerMessageId);
+        if (mechanical === "force_important") isImportant = true;
+        else if (mechanical === "force_not_important") isImportant = false;
         const inserted = await insertEmailSignal({
           userId,
           integrationId: integration.id,

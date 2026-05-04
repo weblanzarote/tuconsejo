@@ -742,11 +742,16 @@ function PreferenciasSection() {
             Describe qué correos quieres ver y cuáles ignorar. La IA ve la dirección exacta del remitente (p. ej. noreply@…) y los destinatarios Para/Cc. Si pides ignorar un correo concreto, incluye su dirección completa. Los que la IA no destaque igual aparecen en el registro discreto abajo; al marcar{" "}
             <strong className="text-foreground/90">Sí, importante</strong> o <strong className="text-foreground/90">No era tan importante</strong>, el sistema aprende en las próximas sincronizaciones.
           </p>
+          <p className="text-xs text-muted-foreground border-l-2 border-border pl-2">
+            <span className="text-foreground/80">Filtro mecánico (obligatorio, para todos los usuarios):</span> puedes añadir líneas con formato fijo, una por línea, al inicio. Se aplican siempre, aunque la IA se equivoque. Con <code className="text-foreground/90">IGNORAR_CUERPO_RE</code> y <code className="text-foreground/90">FORZAR_IMPORTANTE_SI_RE</code> usa un regex entre barras, p. ej. <code className="text-foreground/90">/hola\\s+profe/i</code>. El asunto con <code className="text-foreground/90">IGNORAR_ASUNTO_PREFIJO</code> entiende varios <code className="text-foreground/90">Re:</code> encadenados.
+          </p>
           <textarea
             value={localPrefs}
             onChange={(e) => setLocalPrefs(e.target.value)}
-            placeholder={'Ej: "Prioriza emails de clientes y proveedores. Ignora newsletters y notificaciones de redes sociales. Avísame siempre si hay facturas pendientes."'}
-            rows={4}
+            placeholder={
+              'Texto libre para la IA, y si quieres reglas fijas, por ejemplo:\nIGNORAR_ASUNTO_PREFIJO:Re: Mensaje nuevo\nIGNORAR_ASUNTO_PREFIJO:Hola Re: Usted\nIGNORAR_CUERPO_RE:/^\\s*(buenos\\s+días|hola)\\b.{0,50}\\bprofe\\b/is\nFORZAR_IMPORTANTE_CONTIENE:Juan Pérez'
+            }
+            rows={6}
             className="w-full text-sm bg-muted border border-border rounded-lg px-3 py-2.5 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
           />
           <div className="flex justify-end">
@@ -840,13 +845,13 @@ function AccountPrefsSection({ integrationId, label }: { integrationId: number; 
       {open && (
         <div className="px-3 pb-3 space-y-2 border-t border-border/60">
           <p className="text-xs text-muted-foreground pt-2">
-            Se añaden a las preferencias globales (no las sustituyen). Déjalo vacío si solo quieres las globales.
+            Se añaden a las preferencias globales (no las sustituyen). Puedes repetir aquí líneas de filtro mecánico (mismo formato <code className="text-foreground/80">IGNORAR_…</code> / <code className="text-foreground/80">FORZAR_…</code>) solo para esta bandeja.
           </p>
           <textarea
             value={localPrefs}
             onChange={(e) => setLocalPrefs(e.target.value)}
-            placeholder={'Ej: "Esta es la cuenta de trabajo. Prioriza emails de clientes y del equipo."'}
-            rows={3}
+            placeholder={'Ej: texto libre. O reglas: IGNORAR_ASUNTO_CONTIENE:…'}
+            rows={4}
             className="w-full text-xs bg-muted border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
           />
           <div className="flex justify-end">
