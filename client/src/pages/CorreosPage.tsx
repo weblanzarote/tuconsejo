@@ -22,6 +22,232 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+type MechanicalRuleType =
+  | "ignore_subject_prefix"
+  | "ignore_subject_contains"
+  | "ignore_body_contains"
+  | "force_important_contains"
+  | "advanced_raw";
+
+type MechanicalRule = {
+  id: string;
+  type: MechanicalRuleType;
+  value: string;
+};
+
+const MECHANICAL_LINE_RE =
+  /^\s*(IGNORAR_ASUNTO_PREFIJO|IGNORAR_ASUNTO_CONTIENE|IGNORAR_CUERPO_CONTIENE|IGNORAR_CUERPO_RE|FORZAR_IMPORTANTE_CONTIENE|FORZAR_IMPORTANTE_SI_RE)\s*:\s*(.*)$/i;
+
+function mechanicalTypeLabel(t: MechanicalRuleType): string {
+  switch (t) {
+    case "ignore_subject_prefix":
+      return "Ignorar si el asunto empieza por…";
+    case "ignore_subject_contains":
+      return "Ignorar si el asunto contiene…";
+    case "ignore_body_contains":
+      return "Ignorar si el contenido contiene…";
+    case "force_important_contains":
+      return "Marcar como importante si contiene…";
+    case "advanced_raw":
+      return "Regla avanzada (importada)";
+  }
+}
+
+function mapMechanicalKeyToType(keyUpper: string, rawValue: string): MechanicalRuleType {
+  switch (keyUpper) {
+    case "IGNORAR_ASUNTO_PREFIJO":
+      return "ignore_subject_prefix";
+    case "IGNORAR_ASUNTO_CONTIENE":
+      return "ignore_subject_contains";
+    case "IGNORAR_CUERPO_CONTIENE":
+      return "ignore_body_contains";
+    case "FORZAR_IMPORTANTE_CONTIENE":
+      return "force_important_contains";
+    // Las variantes _RE existen por compatibilidad; se muestran como avanzadas
+    case "IGNORAR_CUERPO_RE":
+    case "FORZAR_IMPORTANTE_SI_RE":
+      return "advanced_raw";
+    default:
+      return rawValue ? "advanced_raw" : "ignore_subject_contains";
+  }
+}
+
+function serializeMechanicalRule(r: MechanicalRule): string | null {
+  const v = r.value.trim();
+  if (!v) return null;
+  switch (r.type) {
+    case "ignore_subject_prefix":
+      return `IGNORAR_ASUNTO_PREFIJO:${v}`;
+    case "ignore_subject_contains":
+      return `IGNORAR_ASUNTO_CONTIENE:${v}`;
+    case "ignore_body_contains":
+      return `IGNORAR_CUERPO_CONTIENE:${v}`;
+    case "force_important_contains":
+      return `FORZAR_IMPORTANTE_CONTIENE:${v}`;
+    case "advanced_raw":
+      // Mantiene lo existente (si el usuario no toca nada) pero no intenta “inventar” formato
+      // Si el usuario edita el texto, lo guardamos tal cual como "CLAVE:valor" si ya lo trae así,
+      // o como IGNORAR_CUERPO_RE:<texto> como fallback.
+      if (MECHANICAL_LINE_RE.test(v)) return v.replace(/\s+/g, " ").trim();
+      return `IGNORAR_CUERPO_RE:${v}`;
+  }
+}
+
+function parsePrefsToUiModel(prefsText: string): { aiText: string; rules: MechanicalRule[] } {
+  const rules: MechanicalRule[] = [];
+  const keptLines: string[] = [];
+  for (const raw of (prefsText ?? "").split("\n")) {
+    const t = raw.trim();
+    if (!t || t.startsWith("#")) {
+      keptLines.push(raw);
+      continue;
+    }
+    const m = t.match(MECHANICAL_LINE_RE);
+    if (!m) {
+      keptLines.push(raw);
+      continue;
+    }
+    const key = (m[1] ?? "").toUpperCase();
+    const val = (m[2] ?? "").trim();
+    const type = mapMechanicalKeyToType(key, val);
+    const value = type === "advanced_raw" ? `${key}:${val}` : val;
+    rules.push({ id: crypto.randomUUID(), type, value });
+  }
+  const aiText = keptLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { aiText, rules };
+}
+
+function buildPrefsFromUiModel(aiText: string, rules: MechanicalRule[]): string {
+  const headerLines = rules
+    .map(serializeMechanicalRule)
+    .filter((x): x is string => Boolean(x))
+    .map((l) => l.trim());
+  const body = (aiText ?? "").trim();
+  if (headerLines.length === 0) return body;
+  if (!body) return headerLines.join("\n");
+  return `${headerLines.join("\n")}\n\n${body}`;
+}
+
+function MechanicalRulesEditor({
+  value,
+  onChange,
+  compact,
+}: {
+  value: MechanicalRule[];
+  onChange: (next: MechanicalRule[]) => void;
+  compact?: boolean;
+}) {
+  const textSize = compact ? "text-xs" : "text-sm";
+  const padY = compact ? "py-2" : "py-2.5";
+  const rowGap = compact ? "gap-2" : "gap-3";
+
+  const addRule = () => {
+    onChange([
+      ...value,
+      { id: crypto.randomUUID(), type: "ignore_subject_contains", value: "" },
+    ]);
+  };
+
+  const updateRule = (id: string, patch: Partial<MechanicalRule>) => {
+    onChange(value.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+
+  const removeRule = (id: string) => onChange(value.filter((r) => r.id !== id));
+
+  return (
+    <div className="space-y-2">
+      {value.length === 0 ? (
+        <p className={cn(textSize, "text-muted-foreground")}>
+          No hay reglas automáticas. Si quieres, añade una para ignorar ruido (newsletters, avisos repetitivos) o
+          destacar algo concreto.
+        </p>
+      ) : (
+        <div className={cn("space-y-2", compact && "space-y-1.5")}>
+          {value.map((r) => (
+            <div
+              key={r.id}
+              className={cn(
+                "rounded-lg border border-border/60 bg-muted/30 px-3",
+                padY
+              )}
+            >
+              <div className={cn("flex items-start", rowGap)}>
+                <div className="flex-1 space-y-1.5 min-w-0">
+                  <label className={cn("block font-medium text-muted-foreground", compact ? "text-[11px]" : "text-xs")}>
+                    Tipo de regla
+                  </label>
+                  <select
+                    value={r.type}
+                    onChange={(e) => updateRule(r.id, { type: e.target.value as MechanicalRuleType, value: "" })}
+                    className={cn(
+                      "w-full bg-background border border-border rounded-lg px-3",
+                      compact ? "text-xs py-2" : "text-sm py-2.5",
+                      "focus:outline-none focus:border-foreground/30 transition-colors"
+                    )}
+                  >
+                    <option value="ignore_subject_prefix">{mechanicalTypeLabel("ignore_subject_prefix")}</option>
+                    <option value="ignore_subject_contains">{mechanicalTypeLabel("ignore_subject_contains")}</option>
+                    <option value="ignore_body_contains">{mechanicalTypeLabel("ignore_body_contains")}</option>
+                    <option value="force_important_contains">{mechanicalTypeLabel("force_important_contains")}</option>
+                    <option value="advanced_raw">{mechanicalTypeLabel("advanced_raw")}</option>
+                  </select>
+                  <label className={cn("block font-medium text-muted-foreground", compact ? "text-[11px]" : "text-xs")}>
+                    Texto a buscar
+                  </label>
+                  <input
+                    value={r.value}
+                    onChange={(e) => updateRule(r.id, { value: e.target.value })}
+                    placeholder={
+                      r.type === "ignore_subject_prefix"
+                        ? "Ej: Reunión semanal"
+                        : r.type === "force_important_contains"
+                          ? "Ej: factura, nómina, cita médica…"
+                          : r.type === "advanced_raw"
+                            ? "Se mantiene por compatibilidad (si no lo necesitas, elimínalo)."
+                            : "Ej: newsletter, promociones…"
+                    }
+                    className={cn(
+                      "w-full bg-background border border-border rounded-lg px-3",
+                      compact ? "text-xs py-2" : "text-sm py-2.5",
+                      "focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
+                    )}
+                  />
+                  {r.type === "advanced_raw" && (
+                    <p className={cn(compact ? "text-[10px]" : "text-xs", "text-muted-foreground/80")}>
+                      Esta regla venía de antes. Si no estás seguro, déjala tal cual o bórrala.
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeRule(r.id)}
+                  className={cn(
+                    "flex-shrink-0 p-2 rounded-md text-muted-foreground hover:text-destructive hover:bg-background transition-colors cursor-pointer"
+                  )}
+                  title="Eliminar regla"
+                >
+                  <Trash2 className={cn(compact ? "h-4 w-4" : "h-4 w-4")} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={addRule}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/25 transition-colors cursor-pointer",
+          compact ? "text-xs px-3 py-1.5" : "text-sm px-3 py-2"
+        )}
+      >
+        <Plus className={cn(compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
+        Añadir regla
+      </button>
+    </div>
+  );
+}
+
 function buildExternalEmailUrl(provider: string, gmailMessageId: string | null | undefined): string | null {
   if (!gmailMessageId) return null;
   const [, ...rest] = gmailMessageId.split(":");
@@ -718,13 +944,18 @@ function CorreoConexionPanel({
 // ─── Sección de preferencias ──────────────────────────────────────────────────
 function PreferenciasSection() {
   const [open, setOpen] = useState(false);
-  const [localPrefs, setLocalPrefs] = useState("");
+  const [aiText, setAiText] = useState("");
+  const [rules, setRules] = useState<MechanicalRule[]>([]);
+  const [synced, setSynced] = useState(false);
   const { data, isLoading } = trpc.signals.getEmailPrefs.useQuery();
   const setPrefs = trpc.signals.setEmailPrefs.useMutation({ onSuccess: () => toast.success("Preferencias guardadas") });
 
-  // Sync server value into local state when loaded
-  if (!isLoading && data?.prefs !== undefined && localPrefs === "" && data.prefs !== "") {
-    setLocalPrefs(data.prefs);
+  // Sync server value into local state when loaded (una sola vez)
+  if (!isLoading && !synced && data?.prefs !== undefined) {
+    const parsed = parsePrefsToUiModel(data.prefs ?? "");
+    setAiText(parsed.aiText);
+    setRules(parsed.rules);
+    setSynced(true);
   }
 
   return (
@@ -739,24 +970,32 @@ function PreferenciasSection() {
       {open && (
         <div className="px-4 pb-4 space-y-3 border-t border-border">
           <p className="text-xs text-muted-foreground pt-3">
-            Describe qué correos quieres ver y cuáles ignorar. La IA ve la dirección exacta del remitente (p. ej. noreply@…) y los destinatarios Para/Cc. Si pides ignorar un correo concreto, incluye su dirección completa. Los que la IA no destaque igual aparecen en el registro discreto abajo; al marcar{" "}
-            <strong className="text-foreground/90">Sí, importante</strong> o <strong className="text-foreground/90">No era tan importante</strong>, el sistema aprende en las próximas sincronizaciones.
+            Aquí le das contexto a la app para decidir qué correos merecen tu atención. Si quieres ignorar un remitente
+            concreto, pega su dirección completa (por ejemplo <span className="font-mono">noreply@…</span>). Los correos
+            que no se destaquen seguirán quedando en el registro de abajo por si quieres rescatarlos; cuando marques{" "}
+            <strong className="text-foreground/90">Sí, importante</strong> o <strong className="text-foreground/90">No era tan importante</strong>, el sistema irá afinando.
           </p>
-          <p className="text-xs text-muted-foreground border-l-2 border-border pl-2">
-            <span className="text-foreground/80">Filtro mecánico (obligatorio, para todos los usuarios):</span> puedes añadir líneas con formato fijo, una por línea, al inicio. Se aplican siempre, aunque la IA se equivoque. Con <code className="text-foreground/90">IGNORAR_CUERPO_RE</code> y <code className="text-foreground/90">FORZAR_IMPORTANTE_SI_RE</code> usa un regex entre barras, p. ej. <code className="text-foreground/90">/hola\\s+profe/i</code>. El asunto con <code className="text-foreground/90">IGNORAR_ASUNTO_PREFIJO</code> entiende varios <code className="text-foreground/90">Re:</code> encadenados.
-          </p>
-          <textarea
-            value={localPrefs}
-            onChange={(e) => setLocalPrefs(e.target.value)}
-            placeholder={
-              'Texto libre para la IA, y si quieres reglas fijas, por ejemplo:\nIGNORAR_ASUNTO_PREFIJO:Re: Mensaje nuevo\nIGNORAR_ASUNTO_PREFIJO:Hola Re: Usted\nIGNORAR_CUERPO_RE:/^\\s*(buenos\\s+días|hola)\\b.{0,50}\\bprofe\\b/is\nFORZAR_IMPORTANTE_CONTIENE:Juan Pérez'
-            }
-            rows={6}
-            className="w-full text-sm bg-muted border border-border rounded-lg px-3 py-2.5 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
-          />
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground border-l-2 border-border pl-2">
+              <span className="text-foreground/80">Reglas automáticas (opcionales):</span> se aplican siempre. Úsalas si
+              hay cosas que quieres <span className="text-foreground/80">ignorar sí o sí</span> o{" "}
+              <span className="text-foreground/80">destacar sí o sí</span>, sin depender de la IA.
+            </p>
+            <MechanicalRulesEditor value={rules} onChange={setRules} />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Preferencias para la IA</label>
+            <textarea
+              value={aiText}
+              onChange={(e) => setAiText(e.target.value)}
+              placeholder={'Ejemplos:\n- "Prioriza correos de clientes y del cole."\n- "Ignora promociones y newsletters."\n- "Si alguien pide una respuesta o una fecha, muéstramelo."'}
+              rows={5}
+              className="w-full text-sm bg-muted border border-border rounded-lg px-3 py-2.5 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
+            />
+          </div>
           <div className="flex justify-end">
             <button
-              onClick={() => setPrefs.mutate({ prefs: localPrefs })}
+              onClick={() => setPrefs.mutate({ prefs: buildPrefsFromUiModel(aiText, rules) })}
               disabled={setPrefs.isPending}
               className={cn("text-sm px-4 py-2 rounded-lg transition-colors cursor-pointer",
                 !setPrefs.isPending ? "bg-foreground text-background hover:bg-foreground/90" : "bg-muted text-muted-foreground cursor-not-allowed"
@@ -789,7 +1028,7 @@ function AutoSyncToggle() {
       <div className="min-w-0 pr-3">
         <p className="text-foreground">Sincronización automática</p>
         <p className="text-muted-foreground mt-0.5">
-          Revisa tus cuentas cada {data?.intervalMinutes ?? 15} min (ajustable en el servidor con AUTO_SYNC_INTERVAL_MIN) y trae correos importantes nuevos.
+          Revisa tus cuentas cada {data?.intervalMinutes ?? 15} min y trae correos importantes nuevos.
         </p>
       </div>
       <button
@@ -817,7 +1056,8 @@ function AutoSyncToggle() {
 // ─── Preferencias de una cuenta concreta ──────────────────────────────────────
 function AccountPrefsSection({ integrationId, label }: { integrationId: number; label: string }) {
   const [open, setOpen] = useState(false);
-  const [localPrefs, setLocalPrefs] = useState("");
+  const [aiText, setAiText] = useState("");
+  const [rules, setRules] = useState<MechanicalRule[]>([]);
   const [synced, setSynced] = useState(false);
   const { data, isLoading } = trpc.signals.getIntegrationPrefs.useQuery(
     { integrationId },
@@ -829,7 +1069,9 @@ function AccountPrefsSection({ integrationId, label }: { integrationId: number; 
   });
 
   if (open && !isLoading && !synced && data?.prefs !== undefined) {
-    setLocalPrefs(data.prefs);
+    const parsed = parsePrefsToUiModel(data.prefs ?? "");
+    setAiText(parsed.aiText);
+    setRules(parsed.rules);
     setSynced(true);
   }
 
@@ -845,18 +1087,28 @@ function AccountPrefsSection({ integrationId, label }: { integrationId: number; 
       {open && (
         <div className="px-3 pb-3 space-y-2 border-t border-border/60">
           <p className="text-xs text-muted-foreground pt-2">
-            Se añaden a las preferencias globales (no las sustituyen). Puedes repetir aquí líneas de filtro mecánico (mismo formato <code className="text-foreground/80">IGNORAR_…</code> / <code className="text-foreground/80">FORZAR_…</code>) solo para esta bandeja.
+            Esto se suma a tus preferencias globales (no las sustituye). Úsalo para afinar solo esta cuenta/bandeja.
           </p>
-          <textarea
-            value={localPrefs}
-            onChange={(e) => setLocalPrefs(e.target.value)}
-            placeholder={'Ej: texto libre. O reglas: IGNORAR_ASUNTO_CONTIENE:…'}
-            rows={4}
-            className="w-full text-xs bg-muted border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
-          />
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground border-l-2 border-border pl-2">
+              <span className="text-foreground/80">Reglas automáticas (opcionales):</span> se aplican siempre para esta
+              cuenta.
+            </p>
+            <MechanicalRulesEditor value={rules} onChange={setRules} compact />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-muted-foreground">Preferencias para la IA (solo esta cuenta)</label>
+            <textarea
+              value={aiText}
+              onChange={(e) => setAiText(e.target.value)}
+              placeholder={'Ej: "En esta cuenta solo me interesa lo del trabajo."'}
+              rows={3}
+              className="w-full text-xs bg-muted border border-border rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
+            />
+          </div>
           <div className="flex justify-end">
             <button
-              onClick={() => setPrefs.mutate({ integrationId, prefs: localPrefs })}
+              onClick={() => setPrefs.mutate({ integrationId, prefs: buildPrefsFromUiModel(aiText, rules) })}
               disabled={setPrefs.isPending}
               className={cn("text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer",
                 !setPrefs.isPending ? "bg-foreground text-background hover:bg-foreground/90" : "bg-muted text-muted-foreground cursor-not-allowed"
