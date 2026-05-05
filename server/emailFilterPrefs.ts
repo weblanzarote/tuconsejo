@@ -13,7 +13,7 @@ const EMAIL_IN_TEXT = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/gi;
 
 /** Línea de regla mecánica: CLAVE:valor (la clave va al inicio de la línea). */
 const MECHANICAL_LINE =
-  /^\s*(IGNORAR_ASUNTO_PREFIJO|IGNORAR_ASUNTO_CONTIENE|IGNORAR_CUERPO_CONTIENE|IGNORAR_CUERPO_RE|FORZAR_IMPORTANTE_CONTIENE|FORZAR_IMPORTANTE_SI_RE)\s*:\s*(.*)$/i;
+  /^\s*(IGNORAR_ASUNTO_PREFIJO|IGNORAR_ASUNTO_CONTIENE|IGNORAR_CUERPO_CONTIENE|IGNORAR_CUERPO_RE|IGNORAR_REMITENTE_PREFIJO|FORZAR_IMPORTANTE_CONTIENE|FORZAR_IMPORTANTE_SI_RE|FORZAR_IMPORTANTE_REMITENTE_PREFIJO)\s*:\s*(.*)$/i;
 
 function normalizeSubjectForPrefix(subject: string): string {
   return subject.trim().replace(/\s+/g, " ").toLowerCase();
@@ -57,9 +57,11 @@ function tryParseSlashRegex(value: string): RegExp | null {
 export interface ParsedMechanicalRules {
   ignoreSubjectPrefixes: string[];
   ignoreSubjectContains: string[];
+  ignoreSenderPrefixes: string[];
   ignoreBodyContains: string[];
   ignoreBodyRes: RegExp[];
   forceImportantContains: string[];
+  forceImportantSenderPrefixes: string[];
   forceImportantRes: RegExp[];
 }
 
@@ -67,9 +69,11 @@ export function parseMechanicalRules(prefsText: string): ParsedMechanicalRules {
   const out: ParsedMechanicalRules = {
     ignoreSubjectPrefixes: [],
     ignoreSubjectContains: [],
+    ignoreSenderPrefixes: [],
     ignoreBodyContains: [],
     ignoreBodyRes: [],
     forceImportantContains: [],
+    forceImportantSenderPrefixes: [],
     forceImportantRes: [],
   };
   for (const rawLine of prefsText.split("\n")) {
@@ -87,6 +91,9 @@ export function parseMechanicalRules(prefsText: string): ParsedMechanicalRules {
       case "IGNORAR_ASUNTO_CONTIENE":
         out.ignoreSubjectContains.push(val);
         break;
+      case "IGNORAR_REMITENTE_PREFIJO":
+        out.ignoreSenderPrefixes.push(val);
+        break;
       case "IGNORAR_CUERPO_CONTIENE":
         out.ignoreBodyContains.push(val);
         break;
@@ -97,6 +104,9 @@ export function parseMechanicalRules(prefsText: string): ParsedMechanicalRules {
       }
       case "FORZAR_IMPORTANTE_CONTIENE":
         out.forceImportantContains.push(val);
+        break;
+      case "FORZAR_IMPORTANTE_REMITENTE_PREFIJO":
+        out.forceImportantSenderPrefixes.push(val);
         break;
       case "FORZAR_IMPORTANTE_SI_RE": {
         const re = tryParseSlashRegex(val);
@@ -132,8 +142,16 @@ export function stripMechanicalLinesForLLM(prefsText: string): string {
 
 export type MechanicalImportance = "use_llm" | "force_important" | "force_not_important";
 
+function fromAddressMatchesPrefix(fromAddress: string, prefixRule: string): boolean {
+  const from = fromAddress.trim().toLowerCase();
+  const p = prefixRule.trim().toLowerCase();
+  if (!from || !p) return false;
+  return from.startsWith(p);
+}
+
 export function resolveMechanicalEmailImportance(
   opts: {
+    fromAddress: string;
     subject: string;
     snippet: string;
     fullBody: string | null | undefined;
@@ -148,6 +166,9 @@ export function resolveMechanicalEmailImportance(
     if (needle && combinedForForce.toLowerCase().includes(needle)) {
       return "force_important";
     }
+  }
+  for (const pre of rules.forceImportantSenderPrefixes) {
+    if (fromAddressMatchesPrefix(opts.fromAddress, pre)) return "force_important";
   }
   for (const re of rules.forceImportantRes) {
     try {
@@ -164,6 +185,9 @@ export function resolveMechanicalEmailImportance(
   for (const sub of rules.ignoreSubjectContains) {
     const n = normalizeSubjectForPrefix(sub);
     if (n && flatSub.includes(n)) return "force_not_important";
+  }
+  for (const pre of rules.ignoreSenderPrefixes) {
+    if (fromAddressMatchesPrefix(opts.fromAddress, pre)) return "force_not_important";
   }
 
   const bodyLow = bodySample.toLowerCase();

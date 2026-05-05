@@ -25,9 +25,10 @@ import { toast } from "sonner";
 type MechanicalRuleType =
   | "ignore_subject_prefix"
   | "ignore_subject_contains"
+  | "ignore_sender_prefix"
   | "ignore_body_contains"
   | "force_important_contains"
-  | "advanced_raw";
+  | "force_important_sender_prefix";
 
 type MechanicalRule = {
   id: string;
@@ -36,7 +37,7 @@ type MechanicalRule = {
 };
 
 const MECHANICAL_LINE_RE =
-  /^\s*(IGNORAR_ASUNTO_PREFIJO|IGNORAR_ASUNTO_CONTIENE|IGNORAR_CUERPO_CONTIENE|IGNORAR_CUERPO_RE|FORZAR_IMPORTANTE_CONTIENE|FORZAR_IMPORTANTE_SI_RE)\s*:\s*(.*)$/i;
+  /^\s*(IGNORAR_ASUNTO_PREFIJO|IGNORAR_ASUNTO_CONTIENE|IGNORAR_CUERPO_CONTIENE|IGNORAR_CUERPO_RE|IGNORAR_REMITENTE_PREFIJO|FORZAR_IMPORTANTE_CONTIENE|FORZAR_IMPORTANTE_SI_RE|FORZAR_IMPORTANTE_REMITENTE_PREFIJO)\s*:\s*(.*)$/i;
 
 function mechanicalTypeLabel(t: MechanicalRuleType): string {
   switch (t) {
@@ -44,31 +45,37 @@ function mechanicalTypeLabel(t: MechanicalRuleType): string {
       return "Ignorar si el asunto empieza por…";
     case "ignore_subject_contains":
       return "Ignorar si el asunto contiene…";
+    case "ignore_sender_prefix":
+      return "Ignorar si el remitente empieza por…";
     case "ignore_body_contains":
       return "Ignorar si el contenido contiene…";
     case "force_important_contains":
       return "Marcar como importante si contiene…";
-    case "advanced_raw":
-      return "Regla avanzada (importada)";
+    case "force_important_sender_prefix":
+      return "Marcar como importante si el remitente empieza por…";
   }
 }
 
-function mapMechanicalKeyToType(keyUpper: string, rawValue: string): MechanicalRuleType {
+/** null = línea mecánica que ya no usamos en la interfaz (se descarta al cargar). */
+function mapMechanicalKeyToType(keyUpper: string): MechanicalRuleType | null {
   switch (keyUpper) {
     case "IGNORAR_ASUNTO_PREFIJO":
       return "ignore_subject_prefix";
     case "IGNORAR_ASUNTO_CONTIENE":
       return "ignore_subject_contains";
+    case "IGNORAR_REMITENTE_PREFIJO":
+      return "ignore_sender_prefix";
     case "IGNORAR_CUERPO_CONTIENE":
       return "ignore_body_contains";
     case "FORZAR_IMPORTANTE_CONTIENE":
       return "force_important_contains";
-    // Las variantes _RE existen por compatibilidad; se muestran como avanzadas
+    case "FORZAR_IMPORTANTE_REMITENTE_PREFIJO":
+      return "force_important_sender_prefix";
     case "IGNORAR_CUERPO_RE":
     case "FORZAR_IMPORTANTE_SI_RE":
-      return "advanced_raw";
+      return null;
     default:
-      return rawValue ? "advanced_raw" : "ignore_subject_contains";
+      return null;
   }
 }
 
@@ -80,16 +87,14 @@ function serializeMechanicalRule(r: MechanicalRule): string | null {
       return `IGNORAR_ASUNTO_PREFIJO:${v}`;
     case "ignore_subject_contains":
       return `IGNORAR_ASUNTO_CONTIENE:${v}`;
+    case "ignore_sender_prefix":
+      return `IGNORAR_REMITENTE_PREFIJO:${v}`;
     case "ignore_body_contains":
       return `IGNORAR_CUERPO_CONTIENE:${v}`;
     case "force_important_contains":
       return `FORZAR_IMPORTANTE_CONTIENE:${v}`;
-    case "advanced_raw":
-      // Mantiene lo existente (si el usuario no toca nada) pero no intenta “inventar” formato
-      // Si el usuario edita el texto, lo guardamos tal cual como "CLAVE:valor" si ya lo trae así,
-      // o como IGNORAR_CUERPO_RE:<texto> como fallback.
-      if (MECHANICAL_LINE_RE.test(v)) return v.replace(/\s+/g, " ").trim();
-      return `IGNORAR_CUERPO_RE:${v}`;
+    case "force_important_sender_prefix":
+      return `FORZAR_IMPORTANTE_REMITENTE_PREFIJO:${v}`;
   }
 }
 
@@ -109,9 +114,9 @@ function parsePrefsToUiModel(prefsText: string): { aiText: string; rules: Mechan
     }
     const key = (m[1] ?? "").toUpperCase();
     const val = (m[2] ?? "").trim();
-    const type = mapMechanicalKeyToType(key, val);
-    const value = type === "advanced_raw" ? `${key}:${val}` : val;
-    rules.push({ id: crypto.randomUUID(), type, value });
+    const type = mapMechanicalKeyToType(key);
+    if (type === null) continue;
+    rules.push({ id: crypto.randomUUID(), type, value: val });
   }
   const aiText = keptLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   return { aiText, rules };
@@ -187,12 +192,15 @@ function MechanicalRulesEditor({
                   >
                     <option value="ignore_subject_prefix">{mechanicalTypeLabel("ignore_subject_prefix")}</option>
                     <option value="ignore_subject_contains">{mechanicalTypeLabel("ignore_subject_contains")}</option>
+                    <option value="ignore_sender_prefix">{mechanicalTypeLabel("ignore_sender_prefix")}</option>
                     <option value="ignore_body_contains">{mechanicalTypeLabel("ignore_body_contains")}</option>
                     <option value="force_important_contains">{mechanicalTypeLabel("force_important_contains")}</option>
-                    <option value="advanced_raw">{mechanicalTypeLabel("advanced_raw")}</option>
+                    <option value="force_important_sender_prefix">{mechanicalTypeLabel("force_important_sender_prefix")}</option>
                   </select>
                   <label className={cn("block font-medium text-muted-foreground", compact ? "text-[11px]" : "text-xs")}>
-                    Texto a buscar
+                    {r.type === "ignore_sender_prefix" || r.type === "force_important_sender_prefix"
+                      ? "Prefijo del correo del remitente"
+                      : "Texto a buscar"}
                   </label>
                   <input
                     value={r.value}
@@ -200,10 +208,10 @@ function MechanicalRulesEditor({
                     placeholder={
                       r.type === "ignore_subject_prefix"
                         ? "Ej: Reunión semanal"
-                        : r.type === "force_important_contains"
-                          ? "Ej: factura, nómina, cita médica…"
-                          : r.type === "advanced_raw"
-                            ? "Se mantiene por compatibilidad (si no lo necesitas, elimínalo)."
+                        : r.type === "ignore_sender_prefix" || r.type === "force_important_sender_prefix"
+                          ? "Ej: noreply@, marketing@empresa…"
+                          : r.type === "force_important_contains"
+                            ? "Ej: factura, nómina, cita médica…"
                             : "Ej: newsletter, promociones…"
                     }
                     className={cn(
@@ -212,11 +220,6 @@ function MechanicalRulesEditor({
                       "focus:outline-none focus:border-foreground/30 transition-colors placeholder:text-muted-foreground/40"
                     )}
                   />
-                  {r.type === "advanced_raw" && (
-                    <p className={cn(compact ? "text-[10px]" : "text-xs", "text-muted-foreground/80")}>
-                      Esta regla venía de antes. Si no estás seguro, déjala tal cual o bórrala.
-                    </p>
-                  )}
                 </div>
                 <button
                   type="button"

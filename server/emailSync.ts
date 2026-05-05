@@ -147,6 +147,7 @@ Responde ÚNICAMENTE con JSON: {"important": ["id1", "id2"]}`,
         if (hardIgnoredSenders.has(detail.fromAddress.trim().toLowerCase())) continue;
         const mechanical = resolveMechanicalEmailImportance(
           {
+            fromAddress: detail.fromAddress,
             subject: detail.subject,
             snippet: detail.snippet,
             fullBody: detail.fullBody,
